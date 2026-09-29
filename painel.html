@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Painel do Dia | Clinvet Estágios</title><link rel="stylesheet" href="styles.css">
+<style>
+.panel-top{display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap}.clock{font-size:1.8rem;font-weight:800;color:#0b4772}.today{font-weight:700}.panel-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:18px}.spec-card{background:#fff;border:1px solid #dbe5ec;border-radius:16px;overflow:hidden;box-shadow:0 7px 22px rgba(14,48,72,.07)}.spec-head{background:#073e67;color:#fff;padding:14px 16px}.spec-head h3{margin:0}.shift{padding:14px 16px;border-top:1px solid #edf1f4}.shift.current{background:#eef8ff;border-left:5px solid #1385b5}.shift.past{opacity:.68}.shift-title{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px}.live{font-size:.74rem;font-weight:800;background:#1385b5;color:#fff;padding:4px 8px;border-radius:999px}.students{display:grid;gap:8px}.student{display:flex;justify-content:space-between;gap:8px;align-items:center;background:#f7f9fb;border-radius:10px;padding:9px 10px}.student strong{display:block}.status{font-size:.72rem;font-weight:800;padding:4px 7px;border-radius:999px}.approved{background:#dff4e7;color:#176a39}.pending{background:#fff1c9;color:#7b5700}.empty{color:#71808c;font-size:.9rem}.legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:.85rem}.navbtn{color:white;text-decoration:none;border:1px solid rgba(255,255,255,.35);padding:8px 12px;border-radius:9px;display:inline-block}.refresh{font-size:.85rem;color:#657580}.closed{padding:18px;color:#657580}.summary{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.summary span{background:#edf5fa;padding:8px 11px;border-radius:10px;font-weight:700;color:#164c70}
+</style>
+</head>
+<body>
+<header><div class="brand"><span class="paw">🐾</span><div><h1>Hospital Veterinário • Estágios</h1><small>Painel operacional do dia</small></div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><a class="navbtn" href="coordenador.html">Coordenação</a><a class="navbtn" href="ranking.html">🏅 Quadro</a></div></header>
+<main class="wrap">
+<section class="card"><div class="panel-top"><div><h2 style="margin-bottom:4px">Quem está no estágio hoje?</h2><div class="today" id="today"></div><div class="refresh">Atualização automática a cada 60 segundos.</div></div><div class="clock" id="clock">--:--:--</div></div><div class="summary"><span id="currentCount">0 no período atual</span><span id="dayCount">0 agendamentos hoje</span></div><div class="legend"><span>🔵 Período atual</span><span>🟢 Aprovado</span><span>🟡 Aguardando aprovação</span></div></section>
+<div class="panel-grid" id="grid"></div>
+</main>
+<script src="app.js"></script>
+<script>
+const grid=document.getElementById('grid');
+function parseRange(turno){const m=String(turno).match(/(\d{2})h[^\d]+(\d{2})h/);return m?{start:+m[1],end:+m[2]}:null}
+function isCurrent(turno,now){const r=parseRange(turno);if(!r)return false;const h=now.getHours()+now.getMinutes()/60;return h>=r.start&&h<r.end}
+function isPast(turno,now){const r=parseRange(turno);if(!r)return false;return now.getHours()+now.getMinutes()/60>=r.end}
+function activeToday(spec,now){return ESPECIALIDADES[spec].dias.includes(now.getDay())}
+function statusLabel(s){return s==='APROVADO'?'<span class="status approved">Aprovado</span>':'<span class="status pending">Pendente</span>'}
+async function loadPanel(){
+ const now=new Date(),date=ymd(now); document.getElementById('today').textContent=now.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+ let all=[]; try{ if(DEMO){all=(await demoApi({acao:'listar'})).data}else{const r=await request({acao:'painelHoje',data:date});all=r.data||[];} }catch(e){grid.innerHTML='<section class="card"><b>Não foi possível carregar o painel.</b><br>'+esc(e.message)+'</section>';return}
+ const today=all.filter(x=>x.data===date&&!['CANCELADO','REMOVIDO'].includes(x.status)); let current=0;
+ grid.innerHTML=Object.keys(ESPECIALIDADES).map(spec=>{
+   const conf=ESPECIALIDADES[spec]; if(!activeToday(spec,now))return `<section class="spec-card"><div class="spec-head"><h3>${esc(spec)}</h3></div><div class="closed">Sem estágio desta especialidade hoje.</div></section>`;
+   const shifts=conf.turnos.map(turno=>{const regs=today.filter(x=>x.especialidade===spec&&x.turno===turno);const cur=isCurrent(turno,now);if(cur)current+=regs.length;const cls=cur?'current':(isPast(turno,now)?'past':'');return `<div class="shift ${cls}"><div class="shift-title"><strong>${esc(turno)}</strong>${cur?'<span class="live">AGORA</span>':''}</div><div class="students">${regs.length?regs.map(x=>`<div class="student"><div><strong>${esc(x.nome)}</strong><small>Matrícula ${esc(x.matricula)}</small></div>${statusLabel(x.status)}</div>`).join(''):'<div class="empty">Nenhum aluno agendado neste período.</div>'}</div></div>`}).join('');
+   return `<section class="spec-card"><div class="spec-head"><h3>${esc(spec)}</h3></div>${shifts}</section>`;
+ }).join('');
+ document.getElementById('currentCount').textContent=current+' '+(current===1?'estagiário':'estagiários')+' no período atual'; document.getElementById('dayCount').textContent=today.length+' '+(today.length===1?'agendamento':'agendamentos')+' hoje';
+}
+function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+tick();loadPanel();setInterval(tick,1000);setInterval(loadPanel,60000);
+</script>
+</body></html>

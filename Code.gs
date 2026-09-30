@@ -12,12 +12,18 @@ function doPost(e){
   if(acao==='feedbackAgendados') return out({ok:true,data:estagiariosAgendadosParaFeedback(p.data,p.turno)});
   if(acao==='feedbackEnviar') return out({ok:true,data:registrarFeedback(p)});
   if(acao==='feedbackListar') return out({ok:true,data:listarFeedbacks()});
+  if(acao==='notasTurmas') return out({ok:true,data:listarTurmasNotas()});
+  if(acao==='notasAlunosTurma') return out({ok:true,data:alunosDaTurma(p.turma)});
+  if(acao==='notasAtividades') return out({ok:true,data:listarAtividadesNotas(p.turma)});
+  if(acao==='notasCarregar') return out({ok:true,data:carregarNotasAtividade(p.turma,p.atividade)});
+  if(acao==='notasLancar') return out({ok:true,data:lancarNotasAtividade(p)});
   let aluno=validarSessao(p.token);
   if(!aluno) throw new Error('Sessão expirada ou acesso inválido. Entre novamente pela Área do Aluno.');
   let data;
   if(acao==='listar') data=listar();
   else if(acao==='datasBloqueadas') data=listarBloqueios();
   else if(acao==='material') data={url:aluno.materialUrl||''};
+  else if(acao==='minhasNotas') data=minhasNotas(aluno);
   else if(acao==='cancelar') data=cancelar(p.id,aluno);
   else if(acao==='solicitar') data=solicitar(p.dados||p,aluno);
   else if(acao==='aprovar') data=alterarStatus(p.id,'APROVADO');
@@ -139,4 +145,56 @@ function registrarFeedback(p){
 function listarFeedbacks(){
  const v=shFeedback().getDataRange().getValues(); if(v.length<2)return [];
  return v.slice(1).filter(r=>r[0]).map(r=>({id:String(r[0]),criadoEm:r[1],nome:r[2],matricula:String(r[3]),avaliador:r[4],funcao:r[5],reconhecimento:Number(r[6]),proatividade:Number(r[7]),conhecimento:Number(r[8]),postura:Number(r[9]),media:Number(r[10]),tipo:r[11],comentario:r[12],dataEstagio:r[13]||'',turno:r[14]||'',especialidade:r[15]||''}));
+}
+
+const SHEET_NOTAS='NotasAtividades';
+function shNotas(){return getSheet(SHEET_NOTAS,['ID','Turma','Atividade','Matricula','Aluno','Nota','CriadoEm','AtualizadoEm'])}
+
+function listarTurmasNotas(){
+ const vals=shAl().getDataRange().getValues().slice(1);
+ return [...new Set(vals.filter(r=>r[0]&&String(r[3]).toUpperCase()!=='NÃO'&&r[4]).map(r=>String(r[4]).trim()))].filter(Boolean).sort();
+}
+function alunosDaTurma(turma){
+ turma=String(turma||'').trim();
+ if(!turma)return [];
+ return shAl().getDataRange().getValues().slice(1)
+  .filter(r=>r[0]&&String(r[3]).toUpperCase()!=='NÃO'&&String(r[4]||'').trim()===turma)
+  .map(r=>({matricula:String(r[0]),nome:String(r[1]),turma:String(r[4]||'')}))
+  .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+}
+function listarAtividadesNotas(turma){
+ const v=shNotas().getDataRange().getValues().slice(1);
+ const f=v.filter(r=>r[0]&&(!turma||String(r[1])===String(turma)));
+ const map={};
+ f.forEach(r=>{const k=String(r[1])+'|'+String(r[2]);if(!map[k])map[k]={turma:String(r[1]),atividade:String(r[2]),atualizadoEm:r[7]||r[6]||''}});
+ return Object.values(map).sort((a,b)=>String(b.atualizadoEm).localeCompare(String(a.atualizadoEm))||a.atividade.localeCompare(b.atividade,'pt-BR'));
+}
+function carregarNotasAtividade(turma,atividade){
+ turma=String(turma||'').trim(); atividade=String(atividade||'').trim();
+ const alunos=alunosDaTurma(turma),v=shNotas().getDataRange().getValues().slice(1),map={};
+ v.filter(r=>String(r[1])===turma&&String(r[2])===atividade).forEach(r=>map[String(r[3])]=Number(r[5]));
+ return alunos.map(a=>({...a,nota:Object.prototype.hasOwnProperty.call(map,a.matricula)?map[a.matricula]:''}));
+}
+function lancarNotasAtividade(p){
+ const turma=String(p.turma||'').trim(),atividade=String(p.atividade||'').trim(),notas=Array.isArray(p.notas)?p.notas:[];
+ if(!turma||!atividade)throw new Error('Informe a turma e o nome da atividade.');
+ if(!notas.length)throw new Error('Informe ao menos uma nota.');
+ const alunos=alunosDaTurma(turma),validos=new Set(alunos.map(a=>a.matricula)),s=shNotas(),all=s.getDataRange().getValues(),now=new Date();
+ notas.forEach(item=>{
+   const mat=String(item.matricula||''),nota=Number(item.nota);
+   if(!validos.has(mat))throw new Error('Aluno inválido para a turma selecionada.');
+   if(!Number.isFinite(nota)||nota<0||nota>10)throw new Error('As notas devem estar entre 0 e 10.');
+   let row=0;
+   for(let i=1;i<all.length;i++)if(String(all[i][1])===turma&&String(all[i][2])===atividade&&String(all[i][3])===mat){row=i+1;break}
+   const aluno=alunos.find(a=>a.matricula===mat);
+   if(row)s.getRange(row,5,1,4).setValues([[aluno.nome,nota,all[row-1][6]||now,now]]);
+   else{s.appendRow([Utilities.getUuid(),turma,atividade,mat,aluno.nome,nota,now,now]);all.push([null,turma,atividade,mat,aluno.nome,nota,now,now])}
+ });
+ return {ok:true};
+}
+function minhasNotas(aluno){
+ const v=shNotas().getDataRange().getValues().slice(1);
+ return v.filter(r=>r[0]&&String(r[3])===String(aluno.matricula))
+  .map(r=>({turma:String(r[1]||''),atividade:String(r[2]||''),nota:Number(r[5]),criadoEm:r[6]||'',atualizadoEm:r[7]||r[6]||''}))
+  .sort((a,b)=>String(b.atualizadoEm).localeCompare(String(a.atualizadoEm)));
 }

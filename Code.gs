@@ -9,6 +9,7 @@ function doPost(e){
   if(acao==='relatorio') return out({ok:true,data:relatorioEstagios()});
   if(acao==='painelHoje') return out({ok:true,data:painelHoje(p.data)});
   if(acao==='feedbackAlunos') return out({ok:true,data:alunosParaFeedback()});
+  if(acao==='feedbackAgendados') return out({ok:true,data:estagiariosAgendadosParaFeedback(p.data,p.turno)});
   if(acao==='feedbackEnviar') return out({ok:true,data:registrarFeedback(p)});
   if(acao==='feedbackListar') return out({ok:true,data:listarFeedbacks()});
   let aluno=validarSessao(p.token);
@@ -117,16 +118,25 @@ function shFeedback(){return getSheet(SHEET_FEEDBACK,['ID','CriadoEm','Aluno','M
 function alunosParaFeedback(){
  return shAl().getDataRange().getValues().slice(1).filter(r=>r[0]&&String(r[3]).toUpperCase()!=='NÃO').map(r=>({matricula:String(r[0]),nome:String(r[1]),turma:String(r[4]||'')}));
 }
+function estagiariosAgendadosParaFeedback(data,turno){
+ if(!data||!turno) return [];
+ const regs=listar().filter(x=>x.data===String(data)&&x.turno===String(turno)&&x.status==='APROVADO');
+ const vistos={};
+ return regs.filter(x=>{const k=x.matricula+'|'+x.especialidade;if(vistos[k])return false;vistos[k]=true;return true}).map(x=>({matricula:x.matricula,nome:x.nome,especialidade:x.especialidade,turno:x.turno,data:x.data}));
+}
 function registrarFeedback(p){
- if(!p.matricula||!p.avaliador) throw new Error('Selecione o estagiário e informe seu nome.');
- const aluno=alunosParaFeedback().find(a=>a.matricula===String(p.matricula)); if(!aluno) throw new Error('Estagiário não encontrado.');
+ if(!p.matricula||!p.avaliador||!p.data||!p.turno) throw new Error('Selecione data, horário, estagiário e informe seu nome.');
+ const agendados=estagiariosAgendadosParaFeedback(p.data,p.turno);
+ const aluno=agendados.find(a=>a.matricula===String(p.matricula)&&(!p.especialidade||a.especialidade===p.especialidade)); if(!aluno) throw new Error('Este estagiário não está aprovado/agendado no período selecionado.');
  const campos=['reconhecimento','proatividade','conhecimento','postura'], notas=campos.map(k=>Number(p[k]));
  if(notas.some(n=>n<1||n>5||!Number.isFinite(n))) throw new Error('Avalie todos os critérios de 1 a 5 estrelas.');
  const media=notas.reduce((a,b)=>a+b,0)/notas.length, tipo=String(p.tipo||'POSITIVO').toUpperCase();
- shFeedback().appendRow([Utilities.getUuid(),new Date(),aluno.nome,aluno.matricula,p.avaliador,p.funcao||'',notas[0],notas[1],notas[2],notas[3],media,tipo,p.comentario||'']);
+ const s=shFeedback();
+ if(s.getLastColumn()<16)s.getRange(1,14,1,3).setValues([['DataEstagio','Turno','Especialidade']]);
+ s.appendRow([Utilities.getUuid(),new Date(),aluno.nome,aluno.matricula,p.avaliador,p.funcao||'',notas[0],notas[1],notas[2],notas[3],media,tipo,p.comentario||'',p.data,p.turno,aluno.especialidade||p.especialidade||'']);
  return {ok:true};
 }
 function listarFeedbacks(){
  const v=shFeedback().getDataRange().getValues(); if(v.length<2)return [];
- return v.slice(1).filter(r=>r[0]).map(r=>({id:String(r[0]),criadoEm:r[1],nome:r[2],matricula:String(r[3]),avaliador:r[4],funcao:r[5],reconhecimento:Number(r[6]),proatividade:Number(r[7]),conhecimento:Number(r[8]),postura:Number(r[9]),media:Number(r[10]),tipo:r[11],comentario:r[12]}));
+ return v.slice(1).filter(r=>r[0]).map(r=>({id:String(r[0]),criadoEm:r[1],nome:r[2],matricula:String(r[3]),avaliador:r[4],funcao:r[5],reconhecimento:Number(r[6]),proatividade:Number(r[7]),conhecimento:Number(r[8]),postura:Number(r[9]),media:Number(r[10]),tipo:r[11],comentario:r[12],dataEstagio:r[13]||'',turno:r[14]||'',especialidade:r[15]||''}));
 }

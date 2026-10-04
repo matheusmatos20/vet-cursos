@@ -1,4 +1,5 @@
 const SHEET_AG='Agendamentos', SHEET_AL='Alunos', SHEET_LEADS='Leads', SHEET_BLOCK='DatasBloqueadas';
+const SHEET_CRM='PreMatriculas', SHEET_CONTATOS='HistoricoContatos', SHEET_TURMAS='Turmas';
 const SESSION_TTL=21600; // 6 horas
 
 function doPost(e){
@@ -6,6 +7,14 @@ function doPost(e){
   const p=JSON.parse(e.postData.contents||'{}'), acao=p.acao||p.action;
   if(acao==='login') return out(loginAluno(p.matricula,p.senha));
   if(acao==='lead') return out(registrarLead(p));
+  if(acao==='gestaoTurmasListar') return out({ok:true,data:listarTurmasGestao()});
+  if(acao==='gestaoTurmaSalvar') return out({ok:true,data:salvarTurmaGestao(p)});
+  if(acao==='gestaoLeadsListar') return out({ok:true,data:listarPreMatriculas()});
+  if(acao==='gestaoLeadDetalhe') return out({ok:true,data:detalhePreMatricula(p.id)});
+  if(acao==='gestaoLeadAssumir') return out({ok:true,data:assumirPreMatricula(p.id,p.responsavel)});
+  if(acao==='gestaoContatoRegistrar') return out({ok:true,data:registrarContatoPreMatricula(p)});
+  if(acao==='gestaoLeadStatus') return out({ok:true,data:alterarStatusPreMatricula(p.id,p.status,p.motivo)});
+  if(acao==='gestaoMatricular') return out({ok:true,data:efetivarMatricula(p)});
   if(acao==='relatorio') return out({ok:true,data:relatorioEstagios()});
   if(acao==='painelHoje') return out({ok:true,data:painelHoje(p.data)});
   if(acao==='feedbackAlunos') return out({ok:true,data:alunosParaFeedback()});
@@ -47,6 +56,9 @@ function shAg(){return getSheet(SHEET_AG,['ID','Nome','Matricula','Especialidade
 function shAl(){return getSheet(SHEET_AL,['Matricula','Nome','SenhaHash','Ativo','Turma','MaterialURL'])}
 function shBlock(){return getSheet(SHEET_BLOCK,['Data','Motivo','Ativo'])}
 function shLeads(){return getSheet(SHEET_LEADS,['CriadoEm','Nome','Telefone','Email','Curso','Mensagem'])}
+function shCRM(){return getSheet(SHEET_CRM,['ID','CriadoEm','Nome','Telefone','Email','Curso','Mensagem','Status','Responsavel','AssumidoEm','UltimoContatoEm','UltimoCanal','MotivoPerda','Matricula','Turma','ConvertidoEm'])}
+function shContatos(){return getSheet(SHEET_CONTATOS,['ID','LeadID','CriadoEm','Responsavel','Canal','Resultado','Observacao','ProximoFollowUp'])}
+function shTurmas(){return getSheet(SHEET_TURMAS,['ID','Nome','DataInicio','DataFim','Status','CriadoEm','AtualizadoEm'])}
 function hashSenha(s){let b=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,String(s),Utilities.Charset.UTF_8);return b.map(x=>('0'+((x<0?x+256:x).toString(16))).slice(-2)).join('')}
 
 function loginAluno(matricula,senha){
@@ -89,10 +101,12 @@ function notificarCoordenacao(aluno,p){
 }
 function registrarLead(p){
  if(!p.nome||!p.telefone||!p.email||!p.curso)throw new Error('Preencha os campos obrigatórios.');
- shLeads().appendRow([new Date(),p.nome,p.telefone,p.email,p.curso,p.mensagem||'']);
+ const now=new Date(),id=Utilities.getUuid();
+ shLeads().appendRow([now,p.nome,p.telefone,p.email,p.curso,p.mensagem||'']);
+ shCRM().appendRow([id,now,p.nome,p.telefone,p.email,p.curso,p.mensagem||'','NOVO','','','','','','','','']);
  const dest=PropertiesService.getScriptProperties().getProperty('LEADS_EMAIL')||'contato@clin.vet.br';
  MailApp.sendEmail({to:dest,replyTo:p.email,subject:'Novo interesse em curso — '+p.nome,htmlBody:'<b>Nome:</b> '+html(p.nome)+'<br><b>WhatsApp:</b> '+html(p.telefone)+'<br><b>E-mail:</b> '+html(p.email)+'<br><b>Interesse:</b> '+html(p.curso)+'<br><b>Mensagem:</b> '+html(p.mensagem||'—')});
- return {ok:true};
+ return {ok:true,id};
 }
 function html(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function rowById(id){const s=shAg(),last=s.getLastRow();if(last<2)throw new Error('Agendamento não encontrado');const v=s.getRange(2,1,last-1,1).getValues();for(let i=0;i<v.length;i++)if(String(v[i][0])===String(id))return i+2;throw new Error('Agendamento não encontrado')}
@@ -292,4 +306,79 @@ function frequenciaAlunoDetalhe(matricula){
 }
 function frequenciaTurma(turma){
  return alunosDaTurma(String(turma||'')).map(a=>({matricula:a.matricula,nome:a.nome,turma:a.turma,...resumoFrequencia(a.matricula)}));
+}
+
+
+function fmtDateValue(v){return v?Utilities.formatDate(new Date(v),Session.getScriptTimeZone(),'yyyy-MM-dd'):''}
+function listarTurmasGestao(){
+ const v=shTurmas().getDataRange().getValues(); if(v.length<2)return [];
+ return v.slice(1).filter(r=>r[0]).map(r=>({id:String(r[0]),nome:String(r[1]),dataInicio:fmtDateValue(r[2]),dataFim:fmtDateValue(r[3]),status:String(r[4]||'ATIVA'),criadoEm:r[5]||'',atualizadoEm:r[6]||''})).sort((a,b)=>a.dataInicio.localeCompare(b.dataInicio));
+}
+function salvarTurmaGestao(p){
+ const nome=String(p.nome||'').trim(),inicio=String(p.dataInicio||''),fim=String(p.dataFim||''),status=String(p.status||'ATIVA').toUpperCase();
+ if(!nome||!inicio||!fim)throw new Error('Informe nome, data de início e data de término.');
+ if(new Date(fim)<new Date(inicio))throw new Error('A data de término deve ser posterior à data de início.');
+ const s=shTurmas(),v=s.getDataRange().getValues(),now=new Date();
+ if(p.id){
+  for(let i=1;i<v.length;i++)if(String(v[i][0])===String(p.id)){s.getRange(i+1,2,1,6).setValues([[nome,new Date(inicio+'T12:00:00'),new Date(fim+'T12:00:00'),status,v[i][5]||now,now]]);return {id:String(p.id)}}
+  throw new Error('Turma não encontrada.');
+ }
+ const id=Utilities.getUuid();s.appendRow([id,nome,new Date(inicio+'T12:00:00'),new Date(fim+'T12:00:00'),status,now,now]);return {id};
+}
+function listarPreMatriculas(){
+ const v=shCRM().getDataRange().getValues();if(v.length<2)return [];
+ return v.slice(1).filter(r=>r[0]).map(r=>({id:String(r[0]),criadoEm:r[1]||'',nome:String(r[2]||''),telefone:String(r[3]||''),email:String(r[4]||''),curso:String(r[5]||''),mensagem:String(r[6]||''),status:String(r[7]||'NOVO'),responsavel:String(r[8]||''),assumidoEm:r[9]||'',ultimoContatoEm:r[10]||'',ultimoCanal:String(r[11]||''),motivoPerda:String(r[12]||''),matricula:String(r[13]||''),turma:String(r[14]||''),convertidoEm:r[15]||''})).sort((a,b)=>String(b.criadoEm).localeCompare(String(a.criadoEm)));
+}
+function crmRowById(id){const s=shCRM(),v=s.getDataRange().getValues();for(let i=1;i<v.length;i++)if(String(v[i][0])===String(id))return {sheet:s,row:i+1,values:v[i]};throw new Error('Pré-matrícula não encontrada.')}
+function detalhePreMatricula(id){
+ const lead=listarPreMatriculas().find(x=>x.id===String(id));if(!lead)throw new Error('Pré-matrícula não encontrada.');
+ const v=shContatos().getDataRange().getValues(),historico=v.slice(1).filter(r=>String(r[1])===String(id)).map(r=>({id:String(r[0]),criadoEm:r[2]||'',responsavel:String(r[3]||''),canal:String(r[4]||''),resultado:String(r[5]||''),observacao:String(r[6]||''),proximoFollowUp:r[7]?fmtDateValue(r[7]):''})).sort((a,b)=>String(b.criadoEm).localeCompare(String(a.criadoEm)));
+ return {lead,historico};
+}
+function assumirPreMatricula(id,responsavel){
+ responsavel=String(responsavel||'').trim();if(!responsavel)throw new Error('Informe quem está assumindo o atendimento.');
+ const x=crmRowById(id),atual=String(x.values[8]||''),status=String(x.values[7]||'NOVO');
+ if(atual&&atual!==responsavel&&status!=='MATRICULADO'&&status!=='PERDIDO')throw new Error('Este contato já está sendo atendido por '+atual+'.');
+ if(['MATRICULADO','PERDIDO'].includes(status))throw new Error('Este atendimento já foi encerrado.');
+ const now=new Date();x.sheet.getRange(x.row,8,1,3).setValues([['EM_CONTATO',responsavel,now]]);
+ shContatos().appendRow([Utilities.getUuid(),id,now,responsavel,'SISTEMA','ATENDIMENTO_ASSUMIDO','Responsável assumiu o lead','']);
+ return true;
+}
+function registrarContatoPreMatricula(p){
+ const id=String(p.id||''),resp=String(p.responsavel||'').trim(),canal=String(p.canal||'').toUpperCase(),resultado=String(p.resultado||'').toUpperCase(),obs=String(p.observacao||''),follow=String(p.proximoFollowUp||'');
+ if(!id||!resp||!canal||!resultado)throw new Error('Informe responsável, canal e resultado do contato.');
+ if(!['EMAIL','WHATSAPP','LIGACAO','PRESENCIAL','OUTRO'].includes(canal))throw new Error('Canal inválido.');
+ const x=crmRowById(id),atual=String(x.values[8]||'');
+ if(atual&&atual!==resp)throw new Error('Este lead está atribuído a '+atual+'.');
+ const now=new Date();if(!atual)x.sheet.getRange(x.row,9,1,2).setValues([[resp,now]]);
+ let novoStatus='EM_CONTATO';if(resultado==='AGUARDANDO_RETORNO')novoStatus='AGUARDANDO';if(resultado==='INTERESSADO')novoStatus='INTERESSADO';if(resultado==='SEM_INTERESSE')novoStatus='PERDIDO';
+ x.sheet.getRange(x.row,8).setValue(novoStatus);x.sheet.getRange(x.row,11,1,2).setValues([[now,canal]]);
+ if(novoStatus==='PERDIDO')x.sheet.getRange(x.row,13).setValue(obs||'Sem interesse');
+ shContatos().appendRow([Utilities.getUuid(),id,now,resp,canal,resultado,obs,follow?new Date(follow+'T12:00:00'):'']);
+ return true;
+}
+function alterarStatusPreMatricula(id,status,motivo){
+ status=String(status||'').toUpperCase();if(!['NOVO','EM_CONTATO','AGUARDANDO','INTERESSADO','PERDIDO'].includes(status))throw new Error('Status inválido.');
+ const x=crmRowById(id);x.sheet.getRange(x.row,8).setValue(status);if(status==='PERDIDO')x.sheet.getRange(x.row,13).setValue(String(motivo||''));
+ return true;
+}
+function gerarMatricula(){
+ const ano=Utilities.formatDate(new Date(),Session.getScriptTimeZone(),'yyyy'),v=shAl().getDataRange().getValues().slice(1).map(r=>String(r[0]||'')).filter(x=>x.indexOf(ano)===0);
+ let max=0;v.forEach(x=>{const n=Number(x.slice(4));if(Number.isFinite(n)&&n>max)max=n});return ano+String(max+1).padStart(4,'0');
+}
+function gerarSenhaTemporaria(){return Utilities.getUuid().replace(/-/g,'').slice(0,8).toUpperCase()}
+function efetivarMatricula(p){
+ const id=String(p.id||''),turma=String(p.turma||'').trim(),resp=String(p.responsavel||'').trim();
+ if(!id||!turma||!resp)throw new Error('Informe lead, turma e responsável.');
+ const turmaObj=listarTurmasGestao().find(t=>t.nome===turma&&t.status!=='ENCERRADA');if(!turmaObj)throw new Error('Turma inválida ou encerrada.');
+ const x=crmRowById(id),status=String(x.values[7]||'NOVO'),atual=String(x.values[8]||'');
+ if(status==='MATRICULADO')throw new Error('Esta pré-matrícula já foi convertida.');
+ if(atual&&atual!==resp)throw new Error('Este lead está atribuído a '+atual+'.');
+ const nome=String(x.values[2]||''),email=String(x.values[4]||''),matricula=gerarMatricula(),senha=gerarSenhaTemporaria();
+ cadastrarAluno(matricula,nome,senha,turma,'');
+ const now=new Date();x.sheet.getRange(x.row,8).setValue('MATRICULADO');x.sheet.getRange(x.row,9).setValue(resp);x.sheet.getRange(x.row,14,1,3).setValues([[matricula,turma,now]]);
+ shContatos().appendRow([Utilities.getUuid(),id,now,resp,'SISTEMA','MATRICULA_EFETIVADA','Matrícula '+matricula+' vinculada à turma '+turma,'']);
+ const dest=PropertiesService.getScriptProperties().getProperty('MATRICULA_EMAIL');
+ if(dest)MailApp.sendEmail({to:dest,subject:'Matrícula efetivada — '+nome,htmlBody:'<b>Aluno:</b> '+html(nome)+'<br><b>Matrícula:</b> '+html(matricula)+'<br><b>Turma:</b> '+html(turma)});
+ return {matricula,senhaTemporaria:senha,nome,email,turma};
 }

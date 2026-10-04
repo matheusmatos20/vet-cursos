@@ -288,7 +288,7 @@ function frequenciaAlunoDetalhe(matricula){
  const resumo=resumoFrequencia(matricula),aulas=listarPresencasAula().filter(x=>x.matricula===matricula).sort((a,b)=>b.data.localeCompare(a.data));
  const checks=listarPresencasEstagio().filter(x=>x.matricula===matricula),ids=new Set(checks.map(x=>x.agendamentoId));
  const estagios=listar().filter(x=>x.matricula===matricula&&x.status==='APROVADO'&&fimAgendamentoPassou(x,new Date())).sort((a,b)=>b.data.localeCompare(a.data)).map(x=>({...x,presenca:ids.has(x.id)?'PRESENTE':'FALTA',horas:ids.has(x.id)?duracaoTurno(x.turno):0}));
- return {aluno:{matricula,nome:String(aluno[1]),turma:String(aluno[4]||'')},...resumo,aulas,estagios};
+ return {aluno:{matricula,nome:String(aluno[1]),turma:String(aluno[4]||'')},...resumo,aulasRegistros:aulas,estagiosRegistros:estagios};
 }
 function frequenciaTurma(turma){
  return alunosDaTurma(String(turma||'')).map(a=>({matricula:a.matricula,nome:a.nome,turma:a.turma,...resumoFrequencia(a.matricula)}));

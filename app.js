@@ -7,6 +7,35 @@ const ESPECIALIDADES={
  'Cirurgia':{dias:[1,2,3,4,5],turnos:['Manhã 08h–13h','Tarde 13h–18h']}
 };
 const DEMO=API_URL.startsWith('COLE_');
+function seedGestaoDemo(){
+ if(!DEMO)return;
+ if(!localStorage.getItem('clinvet_turmas')){
+  localStorage.setItem('clinvet_turmas',JSON.stringify([
+   {id:'turma-demo-1',nome:'T38 • Auxiliar Veterinário',dataInicio:'2026-11-10',dataFim:'2027-08-10',status:'ATIVA',criadoEm:'2026-10-04T12:00:00-03:00',atualizadoEm:'2026-10-04T12:00:00-03:00'},
+   {id:'turma-demo-2',nome:'T39 • Auxiliar Veterinário',dataInicio:'2027-02-08',dataFim:'2027-11-08',status:'PLANEJADA',criadoEm:'2026-10-04T12:05:00-03:00',atualizadoEm:'2026-10-04T12:05:00-03:00'}
+  ]));
+ }
+ if(!localStorage.getItem('clinvet_leads')){
+  localStorage.setItem('clinvet_leads',JSON.stringify([
+   {id:'lead-demo-1',nome:'Mariana Souza',telefone:'(13) 99121-4488',email:'mariana.souza@email.com',curso:'Auxiliar Veterinário',mensagem:'Gostaria de saber os horários da próxima turma.',criadoEm:'2026-10-04T09:12:00-03:00',status:'NOVO',responsavel:'',ultimoContatoEm:'',ultimoCanal:'',matricula:'',turma:''},
+   {id:'lead-demo-2',nome:'Lucas Almeida',telefone:'(13) 99734-2016',email:'lucas.almeida@email.com',curso:'Auxiliar Veterinário',mensagem:'Tenho interesse na turma que começa em novembro.',criadoEm:'2026-10-03T16:40:00-03:00',status:'EM_CONTATO',responsavel:'Carla',assumidoEm:'2026-10-04T09:00:00-03:00',ultimoContatoEm:'2026-10-04T09:08:00-03:00',ultimoCanal:'WHATSAPP',matricula:'',turma:''},
+   {id:'lead-demo-3',nome:'Beatriz Ferreira',telefone:'(13) 98844-7630',email:'beatriz.ferreira@email.com',curso:'Auxiliar Veterinário',mensagem:'Quero receber mais informações sobre inscrição.',criadoEm:'2026-10-02T11:15:00-03:00',status:'AGUARDANDO',responsavel:'Carla',assumidoEm:'2026-10-02T13:00:00-03:00',ultimoContatoEm:'2026-10-03T10:20:00-03:00',ultimoCanal:'LIGACAO',matricula:'',turma:''},
+   {id:'lead-demo-4',nome:'Rafael Martins',telefone:'(13) 99602-1189',email:'rafael.martins@email.com',curso:'Auxiliar Veterinário',mensagem:'Gostaria de fazer a matrícula.',criadoEm:'2026-10-01T14:50:00-03:00',status:'INTERESSADO',responsavel:'Juliana',assumidoEm:'2026-10-01T15:10:00-03:00',ultimoContatoEm:'2026-10-03T15:45:00-03:00',ultimoCanal:'WHATSAPP',matricula:'',turma:''},
+   {id:'lead-demo-5',nome:'Camila Rodrigues',telefone:'(13) 99218-5541',email:'camila.rodrigues@email.com',curso:'Auxiliar Veterinário',mensagem:'Quero entender valores e datas.',criadoEm:'2026-09-30T10:05:00-03:00',status:'PERDIDO',responsavel:'Juliana',assumidoEm:'2026-09-30T10:30:00-03:00',ultimoContatoEm:'2026-10-02T17:30:00-03:00',ultimoCanal:'EMAIL',motivoPerda:'Optou por outro curso neste momento.',matricula:'',turma:''}
+  ]));
+ }
+ if(!localStorage.getItem('clinvet_contatos')){
+  localStorage.setItem('clinvet_contatos',JSON.stringify([
+   {id:'cont-demo-1',leadId:'lead-demo-2',criadoEm:'2026-10-04T09:00:00-03:00',responsavel:'Carla',canal:'SISTEMA',resultado:'ATENDIMENTO_ASSUMIDO',observacao:'Atendimento assumido pela recepção.',proximoFollowUp:''},
+   {id:'cont-demo-2',leadId:'lead-demo-2',criadoEm:'2026-10-04T09:08:00-03:00',responsavel:'Carla',canal:'WHATSAPP',resultado:'CONTATO_REALIZADO',observacao:'Enviadas informações da próxima turma e horários.',proximoFollowUp:'2026-10-06'},
+   {id:'cont-demo-3',leadId:'lead-demo-3',criadoEm:'2026-10-02T13:00:00-03:00',responsavel:'Carla',canal:'SISTEMA',resultado:'ATENDIMENTO_ASSUMIDO',observacao:'Atendimento assumido.',proximoFollowUp:''},
+   {id:'cont-demo-4',leadId:'lead-demo-3',criadoEm:'2026-10-03T10:20:00-03:00',responsavel:'Carla',canal:'LIGACAO',resultado:'AGUARDANDO_RETORNO',observacao:'Falou que irá confirmar disponibilidade de horário.',proximoFollowUp:'2026-10-07'},
+   {id:'cont-demo-5',leadId:'lead-demo-4',criadoEm:'2026-10-03T15:45:00-03:00',responsavel:'Juliana',canal:'WHATSAPP',resultado:'INTERESSADO',observacao:'Interessado em efetivar matrícula na T38.',proximoFollowUp:'2026-10-05'},
+   {id:'cont-demo-6',leadId:'lead-demo-5',criadoEm:'2026-10-02T17:30:00-03:00',responsavel:'Juliana',canal:'EMAIL',resultado:'SEM_INTERESSE',observacao:'Optou por outro curso neste momento.',proximoFollowUp:''}
+  ]));
+ }
+}
+seedGestaoDemo();
 const LS='clinvet_agendamentos_v2';
 const SESSION='clinvet_aluno_session';
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}

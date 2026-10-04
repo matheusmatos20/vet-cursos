@@ -17,6 +17,12 @@ function doPost(e){
   if(acao==='notasAtividades') return out({ok:true,data:listarAtividadesNotas(p.turma)});
   if(acao==='notasCarregar') return out({ok:true,data:carregarNotasAtividade(p.turma,p.atividade)});
   if(acao==='notasLancar') return out({ok:true,data:lancarNotasAtividade(p)});
+  if(acao==='checkinEstagio') return out({ok:true,data:registrarCheckinEstagio(p.matricula,p.senha)});
+  if(acao==='frequenciaTurmas') return out({ok:true,data:listarTurmasNotas()});
+  if(acao==='chamadaCarregar') return out({ok:true,data:carregarChamada(p.turma,p.data,p.aula)});
+  if(acao==='chamadaSalvar') return out({ok:true,data:salvarChamada(p)});
+  if(acao==='frequenciaTurma') return out({ok:true,data:frequenciaTurma(p.turma)});
+  if(acao==='frequenciaAluno') return out({ok:true,data:frequenciaAlunoDetalhe(p.matricula)});
   let aluno=validarSessao(p.token);
   if(!aluno) throw new Error('Sessão expirada ou acesso inválido. Entre novamente pela Área do Aluno.');
   let data;
@@ -24,6 +30,7 @@ function doPost(e){
   else if(acao==='datasBloqueadas') data=listarBloqueios();
   else if(acao==='material') data={url:aluno.materialUrl||''};
   else if(acao==='minhasNotas') data=minhasNotas(aluno);
+  else if(acao==='minhaFrequencia') data=frequenciaAlunoDetalhe(aluno.matricula);
   else if(acao==='cancelar') data=cancelar(p.id,aluno);
   else if(acao==='solicitar') data=solicitar(p.dados||p,aluno);
   else if(acao==='aprovar') data=alterarStatus(p.id,'APROVADO');
@@ -197,4 +204,92 @@ function minhasNotas(aluno){
  return v.filter(r=>r[0]&&String(r[3])===String(aluno.matricula))
   .map(r=>({turma:String(r[1]||''),atividade:String(r[2]||''),nota:Number(r[5]),criadoEm:r[6]||'',atualizadoEm:r[7]||r[6]||''}))
   .sort((a,b)=>String(b.atualizadoEm).localeCompare(String(a.atualizadoEm)));
+}
+
+
+const SHEET_PRES_AULA='PresencasAulas', SHEET_PRES_EST='PresencasEstagio';
+function shPresAula(){return getSheet(SHEET_PRES_AULA,['ID','Data','Turma','Aula','Matricula','Aluno','Status','Observacao','AtualizadoEm'])}
+function shPresEst(){return getSheet(SHEET_PRES_EST,['ID','AgendamentoID','Data','Turno','Especialidade','Matricula','Aluno','CheckInEm','Status'])}
+
+function turnoRange(turno){
+ const m=String(turno||'').match(/(\d{2})h[^\d]+(\d{2})h/);
+ return m?{inicio:Number(m[1]),fim:Number(m[2])}:null;
+}
+function duracaoTurno(turno){const r=turnoRange(turno);return r?Math.max(0,r.fim-r.inicio):0}
+function validarCredencialAluno(matricula,senha){
+ matricula=String(matricula||'').trim(); if(!matricula||!senha)throw new Error('Informe matrícula e senha.');
+ const v=shAl().getDataRange().getValues();
+ for(let i=1;i<v.length;i++){
+  if(String(v[i][0]).trim()===matricula){
+   if(String(v[i][3]).toUpperCase()==='NÃO'||v[i][3]===false)throw new Error('Acesso inativo. Procure a secretaria.');
+   if(String(v[i][2])!==hashSenha(senha))throw new Error('Matrícula ou senha inválida.');
+   return {matricula,nome:String(v[i][1]),turma:String(v[i][4]||'')};
+  }
+ }
+ throw new Error('Matrícula ou senha inválida.');
+}
+function registrarCheckinEstagio(matricula,senha){
+ const aluno=validarCredencialAluno(matricula,senha),now=new Date(),hoje=dateKey(now),h=now.getHours()+now.getMinutes()/60;
+ const regs=listar().filter(x=>x.matricula===aluno.matricula&&x.data===hoje&&x.status==='APROVADO');
+ const atual=regs.find(x=>{const r=turnoRange(x.turno);return r&&h>=r.inicio-1&&h<r.fim});
+ if(!atual)throw new Error('Não há estágio aprovado para sua matrícula no período atual.');
+ const s=shPresEst(),v=s.getDataRange().getValues();
+ for(let i=1;i<v.length;i++)if(String(v[i][1])===String(atual.id))return {jaRealizado:true,nome:aluno.nome,especialidade:atual.especialidade,turno:atual.turno,checkInEm:v[i][7]};
+ s.appendRow([Utilities.getUuid(),atual.id,new Date(hoje+'T12:00:00'),atual.turno,atual.especialidade,aluno.matricula,aluno.nome,now,'PRESENTE']);
+ return {jaRealizado:false,nome:aluno.nome,especialidade:atual.especialidade,turno:atual.turno,checkInEm:now};
+}
+function listarPresencasAula(){
+ const v=shPresAula().getDataRange().getValues(); if(v.length<2)return [];
+ return v.slice(1).filter(r=>r[0]).map(r=>({id:String(r[0]),data:dateKey(new Date(r[1])),turma:String(r[2]),aula:String(r[3]),matricula:String(r[4]),nome:String(r[5]),status:String(r[6]||''),observacao:String(r[7]||''),atualizadoEm:r[8]||''}));
+}
+function listarPresencasEstagio(){
+ const v=shPresEst().getDataRange().getValues(); if(v.length<2)return [];
+ return v.slice(1).filter(r=>r[0]).map(r=>({id:String(r[0]),agendamentoId:String(r[1]),data:dateKey(new Date(r[2])),turno:String(r[3]),especialidade:String(r[4]),matricula:String(r[5]),nome:String(r[6]),checkInEm:r[7]||'',status:String(r[8]||'PRESENTE')}));
+}
+function carregarChamada(turma,data,aula){
+ turma=String(turma||'').trim();data=String(data||'').trim();aula=String(aula||'').trim();
+ if(!turma||!data||!aula)throw new Error('Informe turma, data e aula.');
+ const alunos=alunosDaTurma(turma),pres=listarPresencasAula().filter(x=>x.turma===turma&&x.data===data&&x.aula===aula),map={};
+ pres.forEach(x=>map[x.matricula]=x);
+ return alunos.map(a=>({...a,status:map[a.matricula]?.status||'PRESENTE',observacao:map[a.matricula]?.observacao||''}));
+}
+function salvarChamada(p){
+ const turma=String(p.turma||'').trim(),data=String(p.data||'').trim(),aula=String(p.aula||'').trim(),itens=Array.isArray(p.itens)?p.itens:[];
+ if(!turma||!data||!aula||!itens.length)throw new Error('Dados da chamada incompletos.');
+ const alunos=alunosDaTurma(turma),validos=new Map(alunos.map(a=>[a.matricula,a])),s=shPresAula(),all=s.getDataRange().getValues(),now=new Date();
+ itens.forEach(item=>{
+  const mat=String(item.matricula||''),status=String(item.status||'').toUpperCase();
+  if(!validos.has(mat))throw new Error('Aluno inválido para a turma.');
+  if(!['PRESENTE','FALTA','JUSTIFICADA'].includes(status))throw new Error('Status de presença inválido.');
+  let row=0;
+  for(let i=1;i<all.length;i++)if(dateKey(new Date(all[i][1]))===data&&String(all[i][2])===turma&&String(all[i][3])===aula&&String(all[i][4])===mat){row=i+1;break}
+  const a=validos.get(mat),vals=[new Date(data+'T12:00:00'),turma,aula,mat,a.nome,status,String(item.observacao||''),now];
+  if(row)s.getRange(row,2,1,8).setValues([vals]);
+  else{s.appendRow([Utilities.getUuid(),...vals]);all.push([null,...vals])}
+ });
+ return true;
+}
+function fimAgendamentoPassou(ag,now){
+ const r=turnoRange(ag.turno); if(!r)return true;
+ const fim=new Date(ag.data+'T'+String(r.fim).padStart(2,'0')+':00:00');
+ return fim<=now;
+}
+function resumoFrequencia(matricula){
+ matricula=String(matricula);
+ const aulas=listarPresencasAula().filter(x=>x.matricula===matricula),presentes=aulas.filter(x=>x.status==='PRESENTE').length,just=aulas.filter(x=>x.status==='JUSTIFICADA').length,faltas=aulas.filter(x=>x.status==='FALTA').length,total=aulas.length;
+ const ags=listar().filter(x=>x.matricula===matricula&&x.status==='APROVADO'&&fimAgendamentoPassou(x,new Date())),checks=listarPresencasEstagio().filter(x=>x.matricula===matricula),ids=new Set(checks.map(x=>x.agendamentoId)),estPres=ags.filter(x=>ids.has(x.id)).length,estTotal=ags.length;
+ const horas=ags.filter(x=>ids.has(x.id)).reduce((s,x)=>s+duracaoTurno(x.turno),0);
+ return {aulas:{total,presentes,faltas,justificadas:just,percentual:total?Math.round(((presentes+just)/total)*100):0},estagios:{total:estTotal,presentes:estPres,faltas:Math.max(0,estTotal-estPres),percentual:estTotal?Math.round((estPres/estTotal)*100):0,horas}};
+}
+function frequenciaAlunoDetalhe(matricula){
+ matricula=String(matricula||'').trim(); if(!matricula)throw new Error('Matrícula não informada.');
+ const aluno=shAl().getDataRange().getValues().slice(1).find(r=>String(r[0])===matricula);
+ if(!aluno)throw new Error('Aluno não encontrado.');
+ const resumo=resumoFrequencia(matricula),aulas=listarPresencasAula().filter(x=>x.matricula===matricula).sort((a,b)=>b.data.localeCompare(a.data));
+ const checks=listarPresencasEstagio().filter(x=>x.matricula===matricula),ids=new Set(checks.map(x=>x.agendamentoId));
+ const estagios=listar().filter(x=>x.matricula===matricula&&x.status==='APROVADO'&&fimAgendamentoPassou(x,new Date())).sort((a,b)=>b.data.localeCompare(a.data)).map(x=>({...x,presenca:ids.has(x.id)?'PRESENTE':'FALTA',horas:ids.has(x.id)?duracaoTurno(x.turno):0}));
+ return {aluno:{matricula,nome:String(aluno[1]),turma:String(aluno[4]||'')},...resumo,aulas,estagios};
+}
+function frequenciaTurma(turma){
+ return alunosDaTurma(String(turma||'')).map(a=>({matricula:a.matricula,nome:a.nome,turma:a.turma,...resumoFrequencia(a.matricula)}));
 }

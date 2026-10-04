@@ -291,17 +291,17 @@ function fimAgendamentoPassou(ag,now){
 function resumoFrequencia(matricula){
  matricula=String(matricula);
  const aulas=listarPresencasAula().filter(x=>x.matricula===matricula),presentes=aulas.filter(x=>x.status==='PRESENTE').length,just=aulas.filter(x=>x.status==='JUSTIFICADA').length,faltas=aulas.filter(x=>x.status==='FALTA').length,total=aulas.length;
- const ags=listar().filter(x=>x.matricula===matricula&&x.status==='APROVADO'&&fimAgendamentoPassou(x,new Date())),checks=listarPresencasEstagio().filter(x=>x.matricula===matricula),ids=new Set(checks.map(x=>x.agendamentoId)),estPres=ags.filter(x=>ids.has(x.id)).length,estTotal=ags.length;
- const horas=ags.filter(x=>ids.has(x.id)).reduce((s,x)=>s+duracaoTurno(x.turno),0);
- return {aulas:{total,presentes,faltas,justificadas:just,percentual:total?Math.round(((presentes+just)/total)*100):0},estagios:{total:estTotal,presentes:estPres,faltas:Math.max(0,estTotal-estPres),percentual:estTotal?Math.round((estPres/estTotal)*100):0,horas}};
+ const checks=listarPresencasEstagio().filter(x=>x.matricula===matricula&&x.status==='PRESENTE');
+ const horas=checks.reduce((s,x)=>s+duracaoTurno(x.turno),0),minimo=90,maximo=120;
+ const percentual=Math.min(100,Math.round((horas/minimo)*100));
+ return {aulas:{total,presentes,faltas,justificadas:just,percentual:total?Math.round(((presentes+just)/total)*100):0},estagios:{horas,minimo,maximo,percentual,horasRestantesMinimo:Math.max(0,minimo-horas),horasDisponiveisMaximo:Math.max(0,maximo-horas),minimoConcluido:horas>=minimo,maximoAtingido:horas>=maximo}};
 }
 function frequenciaAlunoDetalhe(matricula){
  matricula=String(matricula||'').trim(); if(!matricula)throw new Error('Matrícula não informada.');
  const aluno=shAl().getDataRange().getValues().slice(1).find(r=>String(r[0])===matricula);
  if(!aluno)throw new Error('Aluno não encontrado.');
  const resumo=resumoFrequencia(matricula),aulas=listarPresencasAula().filter(x=>x.matricula===matricula).sort((a,b)=>b.data.localeCompare(a.data));
- const checks=listarPresencasEstagio().filter(x=>x.matricula===matricula),ids=new Set(checks.map(x=>x.agendamentoId));
- const estagios=listar().filter(x=>x.matricula===matricula&&x.status==='APROVADO'&&fimAgendamentoPassou(x,new Date())).sort((a,b)=>b.data.localeCompare(a.data)).map(x=>({...x,presenca:ids.has(x.id)?'PRESENTE':'FALTA',horas:ids.has(x.id)?duracaoTurno(x.turno):0}));
+ const estagios=listarPresencasEstagio().filter(x=>x.matricula===matricula&&x.status==='PRESENTE').sort((a,b)=>b.data.localeCompare(a.data)).map(x=>({...x,horas:duracaoTurno(x.turno)}));
  return {aluno:{matricula,nome:String(aluno[1]),turma:String(aluno[4]||'')},...resumo,aulasRegistros:aulas,estagiosRegistros:estagios};
 }
 function frequenciaTurma(turma){

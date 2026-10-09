@@ -241,7 +241,11 @@ const SHEET_PRES_AULA='PresencasAulas', SHEET_PRES_EST='PresencasEstagio';
 function shPresAula(){return getSheet(SHEET_PRES_AULA,['ID','Data','Turma','Aula','Matricula','Aluno','Status','Observacao','AtualizadoEm'])}
 function shPresEst(){
  const s=getSheet(SHEET_PRES_EST,['ID','AgendamentoID','Data','Turno','Especialidade','Matricula','Aluno','CheckInEm','CheckOutEm','Status']);
- if(s.getLastColumn()<10)s.getRange(1,9,1,2).setValues([['CheckOutEm','Status']]);
+ if(s.getLastColumn()===9){
+  s.insertColumnBefore(9);
+  s.getRange(1,9).setValue('CheckOutEm');
+  s.getRange(1,10).setValue('Status');
+ }
  return s;
 }
 

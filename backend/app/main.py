@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.bd.conexao import obter_sessao, config
-from app.schemas.entradas import PreMatriculaEntrada, AssumirPreMatriculaEntrada, ContatoEntrada, TurmaEntrada, AgendamentoEntrada, CredencialKioskEntrada
+from app.schemas.entradas import PreMatriculaEntrada, AssumirPreMatriculaEntrada, ContatoEntrada, TurmaEntrada, AgendamentoEntrada, CredencialKioskEntrada, ConverterPreMatriculaEntrada
 from app.service import crm_service, turma_service, agendamento_service, kiosk_service, seguranca_service
 
 app=FastAPI(title=config.app_nome,version="0.1.0")
@@ -26,6 +26,11 @@ def assumir_pre_matricula(pre_matricula_id:int,dados:AssumirPreMatriculaEntrada,
 @app.post("/api/pre-matriculas/{pre_matricula_id}/contatos")
 def registrar_contato(pre_matricula_id:int,dados:ContatoEntrada,sessao:Session=Depends(obter_sessao)):
     try:return crm_service.registrar_contato(sessao,pre_matricula_id,dados)
+    except Exception as e:sessao.rollback();raise HTTPException(409,str(e))
+
+@app.post("/api/pre-matriculas/{pre_matricula_id}/converter")
+def converter_pre_matricula(pre_matricula_id:int,dados:ConverterPreMatriculaEntrada,sessao:Session=Depends(obter_sessao)):
+    try:return crm_service.converter_em_matricula(sessao,pre_matricula_id,dados.turma_id,dados.usuario_id,dados.senha_temporaria)
     except Exception as e:sessao.rollback();raise HTTPException(409,str(e))
 
 @app.get("/api/turmas")

@@ -36,3 +36,12 @@ def registrar_contato(sessao: Session, pre_matricula_id: int, dados: ContatoEntr
          "r":dados.resultado_contato_id,"o":dados.observacao,"f":dados.proximo_followup_em})
     sessao.commit()
     return {"ok": True}
+
+
+def converter_em_matricula(sessao: Session, pre_matricula_id: int, turma_id: int, usuario_id: int, senha_temporaria: str):
+    from app.service.seguranca_service import gerar_hash
+    hash_senha=gerar_hash(senha_temporaria)
+    row=sessao.execute(text("EXEC transacional.sp_converter_pre_matricula @pre_matricula_id=:p,@turma_id=:t,@usuario_id=:u,@hash_senha=:h,@algoritmo_hash=:a"),
+        {"p":pre_matricula_id,"t":turma_id,"u":usuario_id,"h":hash_senha,"a":"BCRYPT"}).mappings().first()
+    sessao.commit()
+    return dict(row) if row else {"ok":True}

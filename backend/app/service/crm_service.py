@@ -1,15 +1,17 @@
+from datetime import datetime
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from app.model.modelos import Pessoa, PreMatricula
 from app.schemas.entradas import PreMatriculaEntrada, ContatoEntrada
 
 def criar_pre_matricula(sessao: Session, dados: PreMatriculaEntrada):
-    pessoa = Pessoa(nome_completo=dados.nome_completo,email=str(dados.email),telefone_celular=dados.telefone_celular)
+    agora=datetime.utcnow()
+    pessoa = Pessoa(nome_completo=dados.nome_completo,email=str(dados.email),telefone_celular=dados.telefone_celular,criado_em=agora,atualizado_em=agora)
     sessao.add(pessoa); sessao.flush()
     pre = PreMatricula(
         pessoa_id=pessoa.pessoa_id,curso_id=dados.curso_id,status_pre_matricula_id=1,
         mensagem=dados.mensagem,origem=dados.origem,utm_source=dados.utm_source,
-        utm_medium=dados.utm_medium,utm_campaign=dados.utm_campaign
+        utm_medium=dados.utm_medium,utm_campaign=dados.utm_campaign,criado_em=agora
     )
     sessao.add(pre); sessao.commit(); sessao.refresh(pre)
     return {"pre_matricula_id": pre.pre_matricula_id}

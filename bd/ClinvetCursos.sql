@@ -603,3 +603,168 @@ BEGIN
  SELECT @aluno_id aluno_id,@numero numero_matricula;
 END;
 GO
+
+
+/* ========================= FEEDBACK / AVALIAÇÃO ========================= */
+CREATE TABLE dominio.tb_criterio_avaliacao(
+ criterio_avaliacao_id SMALLINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+ codigo VARCHAR(40) NOT NULL UNIQUE,
+ nome NVARCHAR(100) NOT NULL,
+ ordem TINYINT NOT NULL,
+ ativo BIT NOT NULL DEFAULT 1
+);
+INSERT INTO dominio.tb_criterio_avaliacao(codigo,nome,ordem) VALUES
+('ATITUDE_COLABORACAO',N'Atitude / colaboração',1),
+('PROATIVIDADE',N'Proatividade',2),
+('CONHECIMENTO',N'Conhecimento',3),
+('POSTURA_PROFISSIONAL',N'Postura profissional',4);
+
+CREATE TABLE transacional.tb_avaliacao(
+ avaliacao_id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+ agendamento_id BIGINT NOT NULL,
+ avaliador_usuario_id BIGINT NULL,
+ nome_avaliador NVARCHAR(180) NULL,
+ funcao_avaliador NVARCHAR(100) NULL,
+ tipo VARCHAR(20) NOT NULL,
+ comentario NVARCHAR(2000) NULL,
+ criado_em DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
+ CONSTRAINT fk_avaliacao_agendamento FOREIGN KEY(agendamento_id) REFERENCES transacional.tb_agendamento(agendamento_id),
+ CONSTRAINT fk_avaliacao_usuario FOREIGN KEY(avaliador_usuario_id) REFERENCES transacional.tb_usuario(usuario_id),
+ CONSTRAINT ck_avaliacao_tipo CHECK(tipo IN('RECONHECIMENTO','DESENVOLVIMENTO'))
+);
+CREATE INDEX ix_tb_avaliacao_agendamento ON transacional.tb_avaliacao(agendamento_id,criado_em DESC);
+
+CREATE TABLE transacional.tb_nota_criterio_avaliacao(
+ avaliacao_id BIGINT NOT NULL,
+ criterio_avaliacao_id SMALLINT NOT NULL,
+ nota TINYINT NOT NULL,
+ CONSTRAINT pk_nota_criterio_avaliacao PRIMARY KEY(avaliacao_id,criterio_avaliacao_id),
+ CONSTRAINT fk_nota_criterio_avaliacao FOREIGN KEY(avaliacao_id) REFERENCES transacional.tb_avaliacao(avaliacao_id),
+ CONSTRAINT fk_nota_criterio_dominio FOREIGN KEY(criterio_avaliacao_id) REFERENCES dominio.tb_criterio_avaliacao(criterio_avaliacao_id),
+ CONSTRAINT ck_nota_criterio CHECK(nota BETWEEN 1 AND 5)
+);
+GO
+
+/* ========================= COMUNICAÇÃO ========================= */
+CREATE TABLE dominio.tb_canal_mensagem(
+ canal_mensagem_id TINYINT NOT NULL PRIMARY KEY,
+ codigo VARCHAR(20) NOT NULL UNIQUE,
+ nome NVARCHAR(50) NOT NULL
+);
+INSERT INTO dominio.tb_canal_mensagem VALUES(1,'EMAIL',N'E-mail'),(2,'WHATSAPP',N'WhatsApp');
+
+CREATE TABLE transacional.tb_mensagem(
+ mensagem_id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+ canal_mensagem_id TINYINT NOT NULL,
+ assunto NVARCHAR(250) NULL,
+ corpo NVARCHAR(MAX) NOT NULL,
+ criado_por_usuario_id BIGINT NULL,
+ criado_em DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
+ CONSTRAINT fk_mensagem_canal FOREIGN KEY(canal_mensagem_id) REFERENCES dominio.tb_canal_mensagem(canal_mensagem_id),
+ CONSTRAINT fk_mensagem_usuario FOREIGN KEY(criado_por_usuario_id) REFERENCES transacional.tb_usuario(usuario_id)
+);
+CREATE TABLE transacional.tb_destinatario_mensagem(
+ destinatario_mensagem_id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+ mensagem_id BIGINT NOT NULL,
+ pessoa_id BIGINT NOT NULL,
+ identificador_provedor NVARCHAR(200) NULL,
+ status_provedor NVARCHAR(50) NULL,
+ enviado_em DATETIME2(0) NULL,
+ entregue_em DATETIME2(0) NULL,
+ falhou_em DATETIME2(0) NULL,
+ mensagem_erro NVARCHAR(1000) NULL,
+ CONSTRAINT fk_destinatario_mensagem FOREIGN KEY(mensagem_id) REFERENCES transacional.tb_mensagem(mensagem_id),
+ CONSTRAINT fk_destinatario_pessoa FOREIGN KEY(pessoa_id) REFERENCES transacional.tb_pessoa(pessoa_id),
+ CONSTRAINT uq_destinatario_mensagem UNIQUE(mensagem_id,pessoa_id)
+);
+CREATE INDEX ix_tb_destinatario_pessoa ON transacional.tb_destinatario_mensagem(pessoa_id,destinatario_mensagem_id DESC);
+GO
+
+/* ========================= VIEWS OPERACIONAIS ADICIONAIS ========================= */
+CREATE VIEW transacional.vw_agenda_aulas_praticas AS
+SELECT ag.agendamento_id,ag.aluno_id,a.numero_matricula,p.nome_completo,ag.data_aula_pratica,
+ e.nome especialidade,te.hora_inicio,te.hora_termino,s.codigo status,s.ocupa_vaga,
+ cc.checkin_em,cc.checkout_em,cc.minutos_contabilizados
+FROM transacional.tb_agendamento ag
+JOIN transacional.tb_aluno a ON a.aluno_id=ag.aluno_id
+JOIN transacional.tb_pessoa p ON p.pessoa_id=a.pessoa_id
+JOIN transacional.tb_turno_especialidade te ON te.turno_especialidade_id=ag.turno_especialidade_id
+JOIN dominio.tb_especialidade e ON e.especialidade_id=te.especialidade_id
+JOIN dominio.tb_status_agendamento s ON s.status_agendamento_id=ag.status_agendamento_id
+LEFT JOIN transacional.tb_checkin_checkout cc ON cc.agendamento_id=ag.agendamento_id;
+GO
+
+CREATE VIEW transacional.vw_notas_aluno AS
+SELECT n.aluno_id,a.numero_matricula,p.nome_completo,atv.turma_id,atv.atividade_id,atv.nome atividade,n.valor,atv.nota_maxima,n.atualizado_em
+FROM transacional.tb_nota n
+JOIN transacional.tb_atividade atv ON atv.atividade_id=n.atividade_id
+JOIN transacional.tb_aluno a ON a.aluno_id=n.aluno_id
+JOIN transacional.tb_pessoa p ON p.pessoa_id=a.pessoa_id;
+GO
+
+CREATE VIEW analitico.vw_desempenho_academico AS
+SELECT m.turma_id,n.aluno_id,COUNT(n.nota_id) quantidade_notas,
+ CAST(AVG(CAST(n.valor AS DECIMAL(10,2))) AS DECIMAL(10,2)) media_notas
+FROM transacional.tb_matricula m
+JOIN transacional.tb_nota n ON n.aluno_id=m.aluno_id
+WHERE m.ativa=1
+GROUP BY m.turma_id,n.aluno_id;
+GO
+
+CREATE VIEW analitico.vw_ocupacao_aulas_praticas AS
+SELECT ag.data_aula_pratica,te.especialidade_id,e.nome especialidade,te.hora_inicio,te.hora_termino,
+ COUNT(CASE WHEN s.ocupa_vaga=1 THEN 1 END) vagas_ocupadas,MAX(te.capacidade) capacidade
+FROM transacional.tb_agendamento ag
+JOIN transacional.tb_turno_especialidade te ON te.turno_especialidade_id=ag.turno_especialidade_id
+JOIN dominio.tb_especialidade e ON e.especialidade_id=te.especialidade_id
+JOIN dominio.tb_status_agendamento s ON s.status_agendamento_id=ag.status_agendamento_id
+GROUP BY ag.data_aula_pratica,te.especialidade_id,e.nome,te.hora_inicio,te.hora_termino;
+GO
+
+/* ========================= PROCEDURES OPERACIONAIS ADICIONAIS ========================= */
+CREATE OR ALTER PROCEDURE transacional.sp_aprovar_agendamento @agendamento_id BIGINT,@usuario_id BIGINT AS
+BEGIN
+ SET NOCOUNT ON; SET XACT_ABORT ON; BEGIN TRAN;
+ DECLARE @data DATE,@turno INT,@status VARCHAR(20),@cap SMALLINT,@ocupadas INT;
+ SELECT @data=ag.data_aula_pratica,@turno=ag.turno_especialidade_id,@status=s.codigo,@cap=te.capacidade
+ FROM transacional.tb_agendamento ag WITH(UPDLOCK,HOLDLOCK)
+ JOIN dominio.tb_status_agendamento s ON s.status_agendamento_id=ag.status_agendamento_id
+ JOIN transacional.tb_turno_especialidade te ON te.turno_especialidade_id=ag.turno_especialidade_id
+ WHERE ag.agendamento_id=@agendamento_id;
+ IF @data IS NULL THROW 50300,'Agendamento não encontrado.',1;
+ IF @status<>'PENDENTE' THROW 50301,'Somente solicitações pendentes podem ser aprovadas.',1;
+ SELECT @ocupadas=COUNT(*) FROM transacional.tb_agendamento a WITH(UPDLOCK,HOLDLOCK)
+ JOIN dominio.tb_status_agendamento s ON s.status_agendamento_id=a.status_agendamento_id
+ WHERE a.data_aula_pratica=@data AND a.turno_especialidade_id=@turno AND s.ocupa_vaga=1 AND a.agendamento_id<>@agendamento_id;
+ IF @ocupadas>=@cap THROW 50302,'Período lotado.',1;
+ UPDATE transacional.tb_agendamento SET status_agendamento_id=2,aprovado_em=SYSUTCDATETIME(),aprovado_por_usuario_id=@usuario_id,atualizado_em=SYSUTCDATETIME() WHERE agendamento_id=@agendamento_id;
+ INSERT analitico.tb_evento_integracao(tipo_evento,entidade,entidade_id) VALUES('AGENDAMENTO_APROVADO','tb_agendamento',@agendamento_id);
+ COMMIT;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE transacional.sp_cancelar_agendamento @agendamento_id BIGINT,@aluno_id BIGINT AS
+BEGIN
+ SET NOCOUNT ON; SET XACT_ABORT ON; BEGIN TRAN;
+ DECLARE @data DATE,@inicio TIME,@dono BIGINT;
+ SELECT @data=ag.data_aula_pratica,@inicio=te.hora_inicio,@dono=ag.aluno_id
+ FROM transacional.tb_agendamento ag WITH(UPDLOCK,HOLDLOCK)
+ JOIN transacional.tb_turno_especialidade te ON te.turno_especialidade_id=ag.turno_especialidade_id
+ WHERE ag.agendamento_id=@agendamento_id;
+ IF @data IS NULL THROW 50310,'Agendamento não encontrado.',1;
+ IF @dono<>@aluno_id THROW 50311,'O aluno só pode cancelar o próprio agendamento.',1;
+ DECLARE @inicio_dt DATETIME2=DATEADD(SECOND,DATEDIFF(SECOND,CAST('00:00' AS TIME),@inicio),CAST(@data AS DATETIME2));
+ DECLARE @antecedencia INT=CASE WHEN DATEDIFF(MINUTE,SYSDATETIME(),@inicio_dt)<0 THEN 0 ELSE DATEDIFF(MINUTE,SYSDATETIME(),@inicio_dt) END;
+ UPDATE transacional.tb_agendamento SET status_agendamento_id=3,cancelado_em=SYSUTCDATETIME(),antecedencia_cancelamento_minutos=@antecedencia,atualizado_em=SYSUTCDATETIME() WHERE agendamento_id=@agendamento_id;
+ COMMIT;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE transacional.sp_remover_agendamento @agendamento_id BIGINT,@usuario_id BIGINT AS
+BEGIN
+ SET NOCOUNT ON;
+ UPDATE transacional.tb_agendamento SET status_agendamento_id=4,removido_em=SYSUTCDATETIME(),removido_por_usuario_id=@usuario_id,atualizado_em=SYSUTCDATETIME()
+ WHERE agendamento_id=@agendamento_id;
+ IF @@ROWCOUNT=0 THROW 50320,'Agendamento não encontrado.',1;
+END;
+GO

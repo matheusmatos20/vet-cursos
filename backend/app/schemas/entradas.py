@@ -38,3 +38,8 @@ class AgendamentoEntrada(BaseModel):
 class CredencialKioskEntrada(BaseModel):
     matricula: str
     senha: str
+
+class ConverterPreMatriculaEntrada(BaseModel):
+    turma_id: int
+    usuario_id: int
+    senha_temporaria: str = Field(min_length=8,max_length=72)

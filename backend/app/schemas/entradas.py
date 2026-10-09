@@ -43,3 +43,36 @@ class ConverterPreMatriculaEntrada(BaseModel):
     turma_id: int
     usuario_id: int
     senha_temporaria: str = Field(min_length=8,max_length=72)
+
+class LoginAlunoEntrada(BaseModel):
+    matricula: str
+    senha: str
+
+class UsuarioOperacaoEntrada(BaseModel):
+    usuario_id: int
+
+class CancelarAgendamentoEntrada(BaseModel):
+    aluno_id: int
+
+class AulaEntrada(BaseModel):
+    turma_id: int
+    titulo: str
+    data_aula: date
+    professor_usuario_id: int | None = None
+
+class RegistroPresencaEntrada(BaseModel):
+    aluno_id: int
+    status_presenca_aula_id: int
+    observacao: str | None = None
+
+class ChamadaEntrada(BaseModel):
+    usuario_id: int | None = None
+    registros: list[RegistroPresencaEntrada]
+
+class AvaliacaoEntrada(BaseModel):
+    agendamento_id: int
+    nome_avaliador: str
+    funcao_avaliador: str | None = None
+    tipo: str
+    comentario: str | None = None
+    notas: dict[int,int]

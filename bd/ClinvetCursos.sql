@@ -530,3 +530,76 @@ BEGIN
  COMMIT;
 END;
 GO
+
+
+CREATE OR ALTER PROCEDURE transacional.sp_registrar_contato
+ @pre_matricula_id BIGINT,
+ @usuario_id BIGINT,
+ @canal_contato_id TINYINT,
+ @resultado_contato_id TINYINT,
+ @observacao NVARCHAR(2000)=NULL,
+ @proximo_followup_em DATETIME2(0)=NULL
+AS
+BEGIN
+ SET NOCOUNT ON; SET XACT_ABORT ON; BEGIN TRAN;
+ DECLARE @responsavel BIGINT,@novo_status TINYINT;
+ SELECT @responsavel=responsavel_usuario_id FROM transacional.tb_pre_matricula WITH(UPDLOCK,HOLDLOCK) WHERE pre_matricula_id=@pre_matricula_id;
+ IF @responsavel IS NULL THROW 50010,'Pré-matrícula deve ser assumida antes do contato.',1;
+ IF @responsavel<>@usuario_id THROW 50011,'Pré-matrícula atribuída a outro responsável.',1;
+ SELECT @novo_status=CASE codigo WHEN 'AGUARDANDO_RETORNO' THEN 3 WHEN 'INTERESSADO' THEN 4 WHEN 'SEM_INTERESSE' THEN 6 ELSE 2 END
+ FROM dominio.tb_resultado_contato WHERE resultado_contato_id=@resultado_contato_id;
+ IF @novo_status IS NULL THROW 50012,'Resultado de contato inválido.',1;
+ INSERT transacional.tb_historico_contato(pre_matricula_id,usuario_id,canal_contato_id,resultado_contato_id,proximo_followup_em,observacao)
+ VALUES(@pre_matricula_id,@usuario_id,@canal_contato_id,@resultado_contato_id,@proximo_followup_em,@observacao);
+ UPDATE transacional.tb_pre_matricula SET status_pre_matricula_id=@novo_status,ultimo_contato_em=SYSUTCDATETIME(),
+ proximo_followup_em=@proximo_followup_em,motivo_perda=CASE WHEN @novo_status=6 THEN @observacao ELSE motivo_perda END,
+ encerrado_em=CASE WHEN @novo_status=6 THEN SYSUTCDATETIME() ELSE NULL END,atualizado_em=SYSUTCDATETIME()
+ WHERE pre_matricula_id=@pre_matricula_id;
+ INSERT transacional.tb_historico_status_pre_matricula(pre_matricula_id,status_pre_matricula_id,alterado_por_usuario_id,observacao)
+ VALUES(@pre_matricula_id,@novo_status,@usuario_id,@observacao);
+ COMMIT;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE transacional.sp_converter_pre_matricula
+ @pre_matricula_id BIGINT,
+ @turma_id BIGINT,
+ @usuario_id BIGINT,
+ @hash_senha NVARCHAR(255),
+ @algoritmo_hash VARCHAR(30)
+AS
+BEGIN
+ SET NOCOUNT ON; SET XACT_ABORT ON; BEGIN TRAN;
+ DECLARE @pessoa_id BIGINT,@responsavel BIGINT,@aluno_id BIGINT,@numero VARCHAR(20),@seq BIGINT,@perfil SMALLINT,@novo_usuario BIGINT;
+ SELECT @pessoa_id=pessoa_id,@responsavel=responsavel_usuario_id FROM transacional.tb_pre_matricula WITH(UPDLOCK,HOLDLOCK) WHERE pre_matricula_id=@pre_matricula_id;
+ IF @pessoa_id IS NULL THROW 50020,'Pré-matrícula não encontrada.',1;
+ IF @responsavel IS NOT NULL AND @responsavel<>@usuario_id THROW 50021,'Pré-matrícula atribuída a outro responsável.',1;
+ IF EXISTS(SELECT 1 FROM transacional.tb_matricula WHERE pre_matricula_origem_id=@pre_matricula_id) THROW 50022,'Pré-matrícula já convertida.',1;
+ IF NOT EXISTS(SELECT 1 FROM transacional.tb_turma t JOIN dominio.tb_status_turma s ON s.status_turma_id=t.status_turma_id WHERE t.turma_id=@turma_id AND s.codigo IN('PLANEJADA','ATIVA')) THROW 50023,'Turma inválida.',1;
+ SELECT @aluno_id=aluno_id,@numero=numero_matricula FROM transacional.tb_aluno WHERE pessoa_id=@pessoa_id;
+ IF @aluno_id IS NULL BEGIN
+   SET @seq=NEXT VALUE FOR transacional.sq_numero_matricula;
+   SET @numero=CONVERT(VARCHAR(4),YEAR(SYSDATETIME()))+RIGHT('000000'+CONVERT(VARCHAR(6),@seq),6);
+   INSERT transacional.tb_aluno(pessoa_id,numero_matricula) VALUES(@pessoa_id,@numero);
+   SET @aluno_id=SCOPE_IDENTITY();
+ END
+ IF NOT EXISTS(SELECT 1 FROM transacional.tb_usuario WHERE pessoa_id=@pessoa_id) BEGIN
+   INSERT transacional.tb_usuario(pessoa_id,login,hash_senha,algoritmo_hash,trocar_senha_proximo_acesso,ativo)
+   VALUES(@pessoa_id,@numero,@hash_senha,@algoritmo_hash,1,1);
+   SET @novo_usuario=SCOPE_IDENTITY();
+   SELECT @perfil=perfil_id FROM dominio.tb_perfil WHERE codigo='ALUNO';
+   INSERT transacional.tb_usuario_perfil(usuario_id,perfil_id) VALUES(@novo_usuario,@perfil);
+ END
+ INSERT transacional.tb_matricula(aluno_id,turma_id,pre_matricula_origem_id,criado_por_usuario_id)
+ VALUES(@aluno_id,@turma_id,@pre_matricula_id,@usuario_id);
+ UPDATE transacional.tb_pre_matricula SET status_pre_matricula_id=5,encerrado_em=SYSUTCDATETIME(),atualizado_em=SYSUTCDATETIME(),
+ responsavel_usuario_id=COALESCE(responsavel_usuario_id,@usuario_id) WHERE pre_matricula_id=@pre_matricula_id;
+ INSERT transacional.tb_historico_status_pre_matricula(pre_matricula_id,status_pre_matricula_id,alterado_por_usuario_id,observacao)
+ VALUES(@pre_matricula_id,5,@usuario_id,N'Pré-matrícula convertida em matrícula.');
+ DECLARE @matricula_id BIGINT=SCOPE_IDENTITY();
+ INSERT analitico.tb_evento_integracao(tipo_evento,entidade,entidade_id,payload_json)
+ VALUES('MATRICULA_EFETIVADA','tb_pre_matricula',@pre_matricula_id,NULL);
+ COMMIT;
+ SELECT @aluno_id aluno_id,@numero numero_matricula;
+END;
+GO

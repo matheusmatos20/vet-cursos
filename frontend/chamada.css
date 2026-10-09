@@ -1,0 +1,1 @@
+.call-wrap{max-width:980px;margin:28px auto}.filters{display:grid;grid-template-columns:1fr 1fr 1.3fr auto;gap:12px;align-items:end}.statuspick{display:flex;gap:8px;flex-wrap:wrap}.statuspick label{border:1px solid #d5dde5;padding:7px 10px;border-radius:9px;cursor:pointer}.obs{min-width:180px}@media(max-width:760px){.filters{grid-template-columns:1fr}}

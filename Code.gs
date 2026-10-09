@@ -1,6 +1,7 @@
 const SHEET_AG='Agendamentos', SHEET_AL='Alunos', SHEET_LEADS='Leads', SHEET_BLOCK='DatasBloqueadas';
 const SHEET_CRM='PreMatriculas', SHEET_CONTATOS='HistoricoContatos', SHEET_TURMAS='Turmas';
 const SESSION_TTL=21600; // 6 horas
+const LIMITE_HORAS_MES_ESTAGIO=40;
 
 function doPost(e){
  try{
@@ -27,6 +28,7 @@ function doPost(e){
   if(acao==='notasCarregar') return out({ok:true,data:carregarNotasAtividade(p.turma,p.atividade)});
   if(acao==='notasLancar') return out({ok:true,data:lancarNotasAtividade(p)});
   if(acao==='checkinEstagio') return out({ok:true,data:registrarCheckinEstagio(p.matricula,p.senha)});
+  if(acao==='checkoutEstagio') return out({ok:true,data:registrarCheckoutEstagio(p.matricula,p.senha)});
   if(acao==='frequenciaTurmas') return out({ok:true,data:listarTurmasNotas()});
   if(acao==='chamadaCarregar') return out({ok:true,data:carregarChamada(p.turma,p.data,p.aula)});
   if(acao==='chamadaSalvar') return out({ok:true,data:salvarChamada(p)});
@@ -81,18 +83,32 @@ function listar(){
  const s=shAg(),v=s.getDataRange().getValues();if(v.length<2)return [];
  return v.slice(1).filter(r=>r[0]).map(r=>({id:String(r[0]),nome:r[1],matricula:String(r[2]),especialidade:r[3],data:Utilities.formatDate(new Date(r[4]),Session.getScriptTimeZone(),'yyyy-MM-dd'),turno:r[5],status:r[6],criadoEm:r[7],atualizadoEm:r[8],canceladoEm:r[9]||'',antecedenciaHoras:r[10]||''}));
 }
+function turnosSobrepostos(a,b){
+ const ra=turnoRange(a),rb=turnoRange(b);
+ return !!(ra&&rb&&ra.inicio<rb.fim&&rb.inicio<ra.fim);
+}
+function horasAgendadasNoMes(matricula,data){
+ const ym=String(data||'').slice(0,7);
+ return listar()
+  .filter(x=>x.matricula===String(matricula)&&String(x.data).slice(0,7)===ym&&!['REMOVIDO','CANCELADO'].includes(String(x.status)))
+  .reduce((s,x)=>s+duracaoTurno(x.turno),0);
+}
 function solicitar(p,aluno){
  if(!p.especialidade||!p.data||!p.turno)throw new Error('Dados incompletos.');
  const motivo=dataBloqueada(p.data); if(motivo) throw new Error('Não é permitido agendar nesta data: '+motivo+'.');
  const lock=LockService.getScriptLock();lock.waitLock(10000);
  try{
-  const ocupadas=listar().filter(x=>x.data===p.data&&x.especialidade===p.especialidade&&x.turno===p.turno&&!['REMOVIDO','CANCELADO'].includes(x.status));
+  const ativos=listar().filter(x=>!['REMOVIDO','CANCELADO'].includes(String(x.status)));
+  const ocupadas=ativos.filter(x=>x.data===p.data&&x.especialidade===p.especialidade&&x.turno===p.turno);
   if(ocupadas.length>=2)throw new Error('Período lotado. Já existem 2 vagas ocupadas/reservadas.');
-  if(ocupadas.some(x=>x.matricula===aluno.matricula))throw new Error('Você já possui uma solicitação neste período.');
+  const conflito=ativos.find(x=>x.matricula===aluno.matricula&&x.data===p.data&&turnosSobrepostos(x.turno,p.turno));
+  if(conflito)throw new Error('Você já possui uma aula prática agendada neste mesmo dia/horário.');
+  const horasTurno=duracaoTurno(p.turno),horasMes=horasAgendadasNoMes(aluno.matricula,p.data);
+  if(horasMes+horasTurno>LIMITE_HORAS_MES_ESTAGIO)throw new Error('Limite mensal atingido. Cada aluno pode agendar no máximo '+LIMITE_HORAS_MES_ESTAGIO+'h de aulas práticas por mês.');
   const id=Utilities.getUuid(),now=new Date();
   shAg().appendRow([id,aluno.nome,aluno.matricula,p.especialidade,new Date(p.data+'T12:00:00'),p.turno,'PENDENTE',now,now,'','']);
   notificarCoordenacao(aluno,p);
-  return {id,status:'PENDENTE'};
+  return {id,status:'PENDENTE',horasMesAposAgendamento:horasMes+horasTurno,limiteHorasMes:LIMITE_HORAS_MES_ESTAGIO};
  }finally{lock.releaseLock()}
 }
 function notificarCoordenacao(aluno,p){
@@ -223,7 +239,11 @@ function minhasNotas(aluno){
 
 const SHEET_PRES_AULA='PresencasAulas', SHEET_PRES_EST='PresencasEstagio';
 function shPresAula(){return getSheet(SHEET_PRES_AULA,['ID','Data','Turma','Aula','Matricula','Aluno','Status','Observacao','AtualizadoEm'])}
-function shPresEst(){return getSheet(SHEET_PRES_EST,['ID','AgendamentoID','Data','Turno','Especialidade','Matricula','Aluno','CheckInEm','Status'])}
+function shPresEst(){
+ const s=getSheet(SHEET_PRES_EST,['ID','AgendamentoID','Data','Turno','Especialidade','Matricula','Aluno','CheckInEm','CheckOutEm','Status']);
+ if(s.getLastColumn()<10)s.getRange(1,9,1,2).setValues([['CheckOutEm','Status']]);
+ return s;
+}
 
 function turnoRange(turno){
  const m=String(turno||'').match(/(\d{2})h[^\d]+(\d{2})h/);
@@ -246,11 +266,31 @@ function registrarCheckinEstagio(matricula,senha){
  const aluno=validarCredencialAluno(matricula,senha),now=new Date(),hoje=dateKey(now),h=now.getHours()+now.getMinutes()/60;
  const regs=listar().filter(x=>x.matricula===aluno.matricula&&x.data===hoje&&x.status==='APROVADO');
  const atual=regs.find(x=>{const r=turnoRange(x.turno);return r&&h>=r.inicio-1&&h<r.fim});
- if(!atual)throw new Error('Não há estágio aprovado para sua matrícula no período atual.');
+ if(!atual)throw new Error('Não há aula prática aprovada para sua matrícula no período atual.');
  const s=shPresEst(),v=s.getDataRange().getValues();
- for(let i=1;i<v.length;i++)if(String(v[i][1])===String(atual.id))return {jaRealizado:true,nome:aluno.nome,especialidade:atual.especialidade,turno:atual.turno,checkInEm:v[i][7]};
- s.appendRow([Utilities.getUuid(),atual.id,new Date(hoje+'T12:00:00'),atual.turno,atual.especialidade,aluno.matricula,aluno.nome,now,'PRESENTE']);
+ for(let i=1;i<v.length;i++)if(String(v[i][1])===String(atual.id))return {jaRealizado:true,nome:aluno.nome,especialidade:atual.especialidade,turno:atual.turno,checkInEm:v[i][7],checkOutEm:v[i][8]||''};
+ s.appendRow([Utilities.getUuid(),atual.id,new Date(hoje+'T12:00:00'),atual.turno,atual.especialidade,aluno.matricula,aluno.nome,now,'','EM_ANDAMENTO']);
  return {jaRealizado:false,nome:aluno.nome,especialidade:atual.especialidade,turno:atual.turno,checkInEm:now};
+}
+function registrarCheckoutEstagio(matricula,senha){
+ const aluno=validarCredencialAluno(matricula,senha),now=new Date(),hoje=dateKey(now),s=shPresEst(),v=s.getDataRange().getValues();
+ for(let i=v.length-1;i>=1;i--){
+  if(String(v[i][5])===aluno.matricula&&dateKey(new Date(v[i][2]))===hoje&&v[i][7]&&!v[i][8]){
+   s.getRange(i+1,9,1,2).setValues([[now,'CONCLUIDO']]);
+   const horas=Math.max(0,(now-new Date(v[i][7]))/3600000);
+   return {nome:aluno.nome,especialidade:String(v[i][4]),turno:String(v[i][3]),checkInEm:v[i][7],checkOutEm:now,horasRealizadas:Number(horas.toFixed(2))};
+  }
+ }
+ throw new Error('Nenhum check-in em aberto foi encontrado para hoje.');
+}
+function listarPresencasEstagio(){
+ const v=shPresEst().getDataRange().getValues(); if(v.length<2)return [];
+ return v.slice(1).filter(r=>r[0]).map(r=>({id:String(r[0]),agendamentoId:String(r[1]),data:dateKey(new Date(r[2])),turno:String(r[3]),especialidade:String(r[4]),matricula:String(r[5]),nome:String(r[6]),checkInEm:r[7]||'',checkOutEm:r[8]||'',status:String(r[9]||'EM_ANDAMENTO')}));
+}
+function horasPresencaEstagio(x){
+ if(!x.checkInEm||!x.checkOutEm)return 0;
+ const real=Math.max(0,(new Date(x.checkOutEm)-new Date(x.checkInEm))/3600000);
+ return Math.min(real,duracaoTurno(x.turno));
 }
 function listarPresencasAula(){
  const v=shPresAula().getDataRange().getValues(); if(v.length<2)return [];
@@ -291,8 +331,8 @@ function fimAgendamentoPassou(ag,now){
 function resumoFrequencia(matricula){
  matricula=String(matricula);
  const aulas=listarPresencasAula().filter(x=>x.matricula===matricula),presentes=aulas.filter(x=>x.status==='PRESENTE').length,just=aulas.filter(x=>x.status==='JUSTIFICADA').length,faltas=aulas.filter(x=>x.status==='FALTA').length,total=aulas.length;
- const checks=listarPresencasEstagio().filter(x=>x.matricula===matricula&&x.status==='PRESENTE');
- const horas=checks.reduce((s,x)=>s+duracaoTurno(x.turno),0),minimo=90,maximo=120;
+ const checks=listarPresencasEstagio().filter(x=>x.matricula===matricula&&x.status==='CONCLUIDO');
+ const horas=Number(checks.reduce((s,x)=>s+horasPresencaEstagio(x),0).toFixed(2)),minimo=90,maximo=120;
  const percentual=Math.min(100,Math.round((horas/minimo)*100));
  return {aulas:{total,presentes,faltas,justificadas:just,percentual:total?Math.round(((presentes+just)/total)*100):0},estagios:{horas,minimo,maximo,percentual,horasRestantesMinimo:Math.max(0,minimo-horas),horasDisponiveisMaximo:Math.max(0,maximo-horas),minimoConcluido:horas>=minimo,maximoAtingido:horas>=maximo}};
 }
@@ -301,7 +341,7 @@ function frequenciaAlunoDetalhe(matricula){
  const aluno=shAl().getDataRange().getValues().slice(1).find(r=>String(r[0])===matricula);
  if(!aluno)throw new Error('Aluno não encontrado.');
  const resumo=resumoFrequencia(matricula),aulas=listarPresencasAula().filter(x=>x.matricula===matricula).sort((a,b)=>b.data.localeCompare(a.data));
- const estagios=listarPresencasEstagio().filter(x=>x.matricula===matricula&&x.status==='PRESENTE').sort((a,b)=>b.data.localeCompare(a.data)).map(x=>({...x,horas:duracaoTurno(x.turno)}));
+ const estagios=listarPresencasEstagio().filter(x=>x.matricula===matricula&&x.status==='CONCLUIDO').sort((a,b)=>b.data.localeCompare(a.data)).map(x=>({...x,horas:Number(horasPresencaEstagio(x).toFixed(2))}));
  return {aluno:{matricula,nome:String(aluno[1]),turma:String(aluno[4]||'')},...resumo,aulasRegistros:aulas,estagiosRegistros:estagios};
 }
 function frequenciaTurma(turma){

@@ -64,6 +64,7 @@ class RegistroPresencaEntrada(BaseModel):
     aluno_id: int
     status_presenca_aula_id: int
     observacao: str | None = None
+    justificativa_falta: str | None = None
 
 class ChamadaEntrada(BaseModel):
     usuario_id: int | None = None

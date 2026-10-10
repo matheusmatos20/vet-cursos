@@ -10,7 +10,7 @@ def criar_aula(sessao: Session, turma_id: int, titulo: str, data_aula: date, pro
 
 def carregar_chamada(sessao: Session, aula_id: int):
     sql=text("""SELECT a.aluno_id,a.numero_matricula,p.nome_completo,
-               COALESCE(pa.status_presenca_aula_id,1) status_presenca_aula_id,pa.observacao
+               COALESCE(pa.status_presenca_aula_id,1) status_presenca_aula_id,pa.observacao,pa.justificativa_falta
                FROM transacional.tb_aula au
                JOIN transacional.tb_matricula m ON m.turma_id=au.turma_id AND m.ativa=1
                JOIN transacional.tb_aluno a ON a.aluno_id=m.aluno_id
@@ -23,9 +23,10 @@ def salvar_chamada(sessao: Session, aula_id: int, registros: list[dict], usuario
     sql=text("""MERGE transacional.tb_presenca_aula AS alvo
                USING (SELECT :aula aula_id,:aluno aluno_id) origem
                ON alvo.aula_id=origem.aula_id AND alvo.aluno_id=origem.aluno_id
-               WHEN MATCHED THEN UPDATE SET status_presenca_aula_id=:status,observacao=:obs,registrado_por_usuario_id=:u,atualizado_em=SYSUTCDATETIME()
-               WHEN NOT MATCHED THEN INSERT(aula_id,aluno_id,status_presenca_aula_id,observacao,registrado_por_usuario_id)
-               VALUES(:aula,:aluno,:status,:obs,:u);""")
+               WHEN MATCHED THEN UPDATE SET status_presenca_aula_id=:status,observacao=:obs,justificativa_falta=:just,registrado_por_usuario_id=:u,atualizado_em=SYSUTCDATETIME()
+               WHEN NOT MATCHED THEN INSERT(aula_id,aluno_id,status_presenca_aula_id,observacao,justificativa_falta,registrado_por_usuario_id)
+               VALUES(:aula,:aluno,:status,:obs,:just,:u);""")
     for r in registros:
-        sessao.execute(sql,{"aula":aula_id,"aluno":r["aluno_id"],"status":r["status_presenca_aula_id"],"obs":r.get("observacao"),"u":usuario_id})
+        justificativa=(r.get("justificativa_falta") or "").strip() or None
+        sessao.execute(sql,{"aula":aula_id,"aluno":r["aluno_id"],"status":r["status_presenca_aula_id"],"obs":r.get("observacao"),"just":justificativa,"u":usuario_id})
     sessao.commit(); return {"ok":True,"registros":len(registros)}

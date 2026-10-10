@@ -276,6 +276,7 @@ CREATE TABLE transacional.tb_presenca_aula(
  aluno_id BIGINT NOT NULL,
  status_presenca_aula_id TINYINT NOT NULL,
  observacao NVARCHAR(500) NULL,
+ justificativa_falta NVARCHAR(1000) NULL,
  registrado_por_usuario_id BIGINT NULL,
  registrado_em DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
  atualizado_em DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
@@ -767,4 +768,10 @@ BEGIN
  WHERE agendamento_id=@agendamento_id;
  IF @@ROWCOUNT=0 THROW 50320,'Agendamento não encontrado.',1;
 END;
+GO
+
+
+/* Ajuste: justificativa de faltas e edição de chamadas */
+IF COL_LENGTH('transacional.tb_presenca_aula','justificativa_falta') IS NULL
+    ALTER TABLE transacional.tb_presenca_aula ADD justificativa_falta NVARCHAR(1000) NULL;
 GO

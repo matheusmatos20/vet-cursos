@@ -43,6 +43,16 @@ class ConverterPreMatriculaEntrada(BaseModel):
     turma_id: int
     usuario_id: int
     senha_temporaria: str = Field(min_length=8,max_length=72)
+    nome_completo: str | None = None
+    email: EmailStr | None = None
+    telefone_celular: str | None = None
+    data_nascimento: date | None = None
+    foto_url: str | None = None
+
+class StatusPreMatriculaEntrada(BaseModel):
+    codigo_status: str
+    usuario_id: int | None = None
+    observacao: str | None = None
 
 class LoginAlunoEntrada(BaseModel):
     matricula: str

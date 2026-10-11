@@ -86,3 +86,4 @@ function demoApi(p){
  if(p.acao==='aprovarTodos'){a.forEach(x=>{if(x.status==='PENDENTE')x.status='APROVADO'});localStorage.setItem(LS,JSON.stringify(a));return Promise.resolve({ok:true,data:true});}
  return Promise.resolve({ok:true,data:a});
 }
+// deploy-cloudflare-trigger-2

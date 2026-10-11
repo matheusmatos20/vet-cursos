@@ -40,10 +40,21 @@ def registrar_contato(sessao: Session, pre_matricula_id: int, dados: ContatoEntr
     return {"ok": True}
 
 
-def converter_em_matricula(sessao: Session, pre_matricula_id: int, turma_id: int, usuario_id: int, senha_temporaria: str):
+def converter_em_matricula(sessao: Session, pre_matricula_id: int, dados):
     from app.service.seguranca_service import gerar_hash
-    hash_senha=gerar_hash(senha_temporaria)
-    row=sessao.execute(text("EXEC transacional.sp_converter_pre_matricula @pre_matricula_id=:p,@turma_id=:t,@usuario_id=:u,@hash_senha=:h,@algoritmo_hash=:a"),
-        {"p":pre_matricula_id,"t":turma_id,"u":usuario_id,"h":hash_senha,"a":"BCRYPT"}).mappings().first()
+    hash_senha=gerar_hash(dados.senha_temporaria)
+    row=sessao.execute(text("""EXEC transacional.sp_converter_pre_matricula
+        @pre_matricula_id=:p,@turma_id=:t,@usuario_id=:u,@hash_senha=:h,@algoritmo_hash=:a,
+        @nome_completo=:n,@email=:e,@telefone_celular=:tel,@data_nascimento=:dn,@foto_url=:foto"""),
+        {"p":pre_matricula_id,"t":dados.turma_id,"u":dados.usuario_id,"h":hash_senha,"a":"BCRYPT",
+         "n":dados.nome_completo,"e":str(dados.email) if dados.email else None,"tel":dados.telefone_celular,
+         "dn":dados.data_nascimento,"foto":dados.foto_url}).mappings().first()
     sessao.commit()
     return dict(row) if row else {"ok":True}
+
+def alterar_status(sessao: Session, pre_matricula_id: int, dados):
+    sessao.execute(text("""EXEC transacional.sp_alterar_status_pre_matricula
+        @pre_matricula_id=:p,@codigo_status=:s,@usuario_id=:u,@observacao=:o"""),
+        {"p":pre_matricula_id,"s":dados.codigo_status,"u":dados.usuario_id,"o":dados.observacao})
+    sessao.commit()
+    return {"ok":True}

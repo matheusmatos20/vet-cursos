@@ -24,3 +24,19 @@ def listar(sessao: Session):
                GROUP BY av.avaliacao_id,av.agendamento_id,av.nome_avaliador,av.funcao_avaliador,av.tipo,av.comentario,av.criado_em,p.nome_completo,e.nome
                ORDER BY av.criado_em DESC""")
     return [dict(r._mapping) for r in sessao.execute(sql)]
+
+
+def candidatos(sessao: Session, data: str, hora_inicio: str | None=None, hora_termino: str | None=None):
+    filtros=["data_aula_pratica=:d"]
+    params={"d":data}
+    if hora_inicio:
+        filtros.append("hora_inicio=:hi")
+        params["hi"]=hora_inicio
+    if hora_termino:
+        filtros.append("hora_termino=:hf")
+        params["hf"]=hora_termino
+    sql=text("""SELECT agendamento_id,aluno_id,numero_matricula,nome_completo,especialidade,foto_url,
+                      hora_inicio,hora_termino
+               FROM transacional.vw_alunos_feedback
+               WHERE """+" AND ".join(filtros)+""" ORDER BY nome_completo""")
+    return [dict(r._mapping) for r in sessao.execute(sql,params)]

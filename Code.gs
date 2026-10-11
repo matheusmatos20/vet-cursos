@@ -238,7 +238,15 @@ function minhasNotas(aluno){
 
 
 const SHEET_PRES_AULA='PresencasAulas', SHEET_PRES_EST='PresencasEstagio';
-function shPresAula(){return getSheet(SHEET_PRES_AULA,['ID','Data','Turma','Aula','Matricula','Aluno','Status','Observacao','AtualizadoEm'])}
+function shPresAula(){
+ const s=getSheet(SHEET_PRES_AULA,['ID','Data','Turma','Aula','Matricula','Aluno','Status','Observacao','JustificativaFalta','AtualizadoEm']);
+ if(s.getLastColumn()===9){
+  s.insertColumnBefore(9);
+  s.getRange(1,9).setValue('JustificativaFalta');
+  s.getRange(1,10).setValue('AtualizadoEm');
+ }
+ return s;
+}
 function shPresEst(){
  const s=getSheet(SHEET_PRES_EST,['ID','AgendamentoID','Data','Turno','Especialidade','Matricula','Aluno','CheckInEm','CheckOutEm','Status']);
  if(s.getLastColumn()===9){
@@ -298,7 +306,7 @@ function horasPresencaEstagio(x){
 }
 function listarPresencasAula(){
  const v=shPresAula().getDataRange().getValues(); if(v.length<2)return [];
- return v.slice(1).filter(r=>r[0]).map(r=>({id:String(r[0]),data:dateKey(new Date(r[1])),turma:String(r[2]),aula:String(r[3]),matricula:String(r[4]),nome:String(r[5]),status:String(r[6]||''),observacao:String(r[7]||''),atualizadoEm:r[8]||''}));
+ return v.slice(1).filter(r=>r[0]).map(r=>({id:String(r[0]),data:dateKey(new Date(r[1])),turma:String(r[2]),aula:String(r[3]),matricula:String(r[4]),nome:String(r[5]),status:String(r[6]||''),observacao:String(r[7]||''),justificativa:String(r[8]||''),atualizadoEm:r[9]||''}));
 }
 function listarPresencasEstagio(){
  const v=shPresEst().getDataRange().getValues(); if(v.length<2)return [];
@@ -309,7 +317,7 @@ function carregarChamada(turma,data,aula){
  if(!turma||!data||!aula)throw new Error('Informe turma, data e aula.');
  const alunos=alunosDaTurma(turma),pres=listarPresencasAula().filter(x=>x.turma===turma&&x.data===data&&x.aula===aula),map={};
  pres.forEach(x=>map[x.matricula]=x);
- return alunos.map(a=>({...a,status:map[a.matricula]?.status||'PRESENTE',observacao:map[a.matricula]?.observacao||''}));
+ return alunos.map(a=>({...a,status:map[a.matricula]?.status||'PRESENTE',observacao:map[a.matricula]?.observacao||'',justificativa:map[a.matricula]?.justificativa||''}));
 }
 function salvarChamada(p){
  const turma=String(p.turma||'').trim(),data=String(p.data||'').trim(),aula=String(p.aula||'').trim(),itens=Array.isArray(p.itens)?p.itens:[];
@@ -321,8 +329,9 @@ function salvarChamada(p){
   if(!['PRESENTE','FALTA','JUSTIFICADA'].includes(status))throw new Error('Status de presença inválido.');
   let row=0;
   for(let i=1;i<all.length;i++)if(dateKey(new Date(all[i][1]))===data&&String(all[i][2])===turma&&String(all[i][3])===aula&&String(all[i][4])===mat){row=i+1;break}
-  const a=validos.get(mat),vals=[new Date(data+'T12:00:00'),turma,aula,mat,a.nome,status,String(item.observacao||''),now];
-  if(row)s.getRange(row,2,1,8).setValues([vals]);
+  const justificativa=status==='FALTA'?String(item.justificativa||'').trim():'';
+  const a=validos.get(mat),vals=[new Date(data+'T12:00:00'),turma,aula,mat,a.nome,status,String(item.observacao||''),justificativa,now];
+  if(row)s.getRange(row,2,1,9).setValues([vals]);
   else{s.appendRow([Utilities.getUuid(),...vals]);all.push([null,...vals])}
  });
  return true;

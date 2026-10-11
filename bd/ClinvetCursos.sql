@@ -166,6 +166,7 @@ CREATE TABLE transacional.tb_aluno(
  aluno_id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED,
  pessoa_id BIGINT NOT NULL UNIQUE,
  numero_matricula VARCHAR(20) NOT NULL UNIQUE,
+ foto_url NVARCHAR(1000) NULL,
  criado_em DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
  CONSTRAINT fk_aluno_pessoa FOREIGN KEY(pessoa_id) REFERENCES transacional.tb_pessoa(pessoa_id)
 );
@@ -567,7 +568,12 @@ CREATE OR ALTER PROCEDURE transacional.sp_converter_pre_matricula
  @turma_id BIGINT,
  @usuario_id BIGINT,
  @hash_senha NVARCHAR(255),
- @algoritmo_hash VARCHAR(30)
+ @algoritmo_hash VARCHAR(30),
+ @nome_completo NVARCHAR(180)=NULL,
+ @email NVARCHAR(254)=NULL,
+ @telefone_celular VARCHAR(25)=NULL,
+ @data_nascimento DATE=NULL,
+ @foto_url NVARCHAR(1000)=NULL
 AS
 BEGIN
  SET NOCOUNT ON; SET XACT_ABORT ON; BEGIN TRAN;
@@ -578,12 +584,20 @@ BEGIN
  IF EXISTS(SELECT 1 FROM transacional.tb_matricula WHERE pre_matricula_origem_id=@pre_matricula_id) THROW 50022,'Pré-matrícula já convertida.',1;
  IF NOT EXISTS(SELECT 1 FROM transacional.tb_turma t JOIN dominio.tb_status_turma s ON s.status_turma_id=t.status_turma_id WHERE t.turma_id=@turma_id AND s.codigo IN('PLANEJADA','ATIVA')) THROW 50023,'Turma inválida.',1;
  SELECT @aluno_id=aluno_id,@numero=numero_matricula FROM transacional.tb_aluno WHERE pessoa_id=@pessoa_id;
+ UPDATE transacional.tb_pessoa
+ SET nome_completo=COALESCE(NULLIF(@nome_completo,N''),nome_completo),
+     email=COALESCE(NULLIF(@email,N''),email),
+     telefone_celular=COALESCE(NULLIF(@telefone_celular,''),telefone_celular),
+     data_nascimento=COALESCE(@data_nascimento,data_nascimento),
+     atualizado_em=SYSUTCDATETIME()
+ WHERE pessoa_id=@pessoa_id;
  IF @aluno_id IS NULL BEGIN
    SET @seq=NEXT VALUE FOR transacional.sq_numero_matricula;
    SET @numero=CONVERT(VARCHAR(4),YEAR(SYSDATETIME()))+RIGHT('000000'+CONVERT(VARCHAR(6),@seq),6);
-   INSERT transacional.tb_aluno(pessoa_id,numero_matricula) VALUES(@pessoa_id,@numero);
+   INSERT transacional.tb_aluno(pessoa_id,numero_matricula,foto_url) VALUES(@pessoa_id,@numero,@foto_url);
    SET @aluno_id=SCOPE_IDENTITY();
  END
+ ELSE IF @foto_url IS NOT NULL UPDATE transacional.tb_aluno SET foto_url=@foto_url WHERE aluno_id=@aluno_id;
  IF NOT EXISTS(SELECT 1 FROM transacional.tb_usuario WHERE pessoa_id=@pessoa_id) BEGIN
    INSERT transacional.tb_usuario(pessoa_id,login,hash_senha,algoritmo_hash,trocar_senha_proximo_acesso,ativo)
    VALUES(@pessoa_id,@numero,@hash_senha,@algoritmo_hash,1,1);
@@ -774,4 +788,47 @@ GO
 /* Ajuste: justificativa de faltas e edição de chamadas */
 IF COL_LENGTH('transacional.tb_presenca_aula','justificativa_falta') IS NULL
     ALTER TABLE transacional.tb_presenca_aula ADD justificativa_falta NVARCHAR(1000) NULL;
+GO
+
+
+/* Ajustes de gestão: foto do aluno e alteração manual de status */
+IF COL_LENGTH('transacional.tb_aluno','foto_url') IS NULL
+    ALTER TABLE transacional.tb_aluno ADD foto_url NVARCHAR(1000) NULL;
+GO
+
+CREATE OR ALTER PROCEDURE transacional.sp_alterar_status_pre_matricula
+ @pre_matricula_id BIGINT,
+ @codigo_status VARCHAR(30),
+ @usuario_id BIGINT=NULL,
+ @observacao NVARCHAR(500)=NULL
+AS
+BEGIN
+ SET NOCOUNT ON; SET XACT_ABORT ON; BEGIN TRAN;
+ DECLARE @status_id TINYINT;
+ SELECT @status_id=status_pre_matricula_id FROM dominio.tb_status_pre_matricula WHERE codigo=@codigo_status;
+ IF @status_id IS NULL THROW 50400,'Status de pré-matrícula inválido.',1;
+ IF NOT EXISTS(SELECT 1 FROM transacional.tb_pre_matricula WITH(UPDLOCK,HOLDLOCK) WHERE pre_matricula_id=@pre_matricula_id)
+    THROW 50401,'Pré-matrícula não encontrada.',1;
+ UPDATE transacional.tb_pre_matricula
+ SET status_pre_matricula_id=@status_id,
+     encerrado_em=CASE WHEN @codigo_status IN('MATRICULADO','PERDIDO') THEN SYSUTCDATETIME() ELSE NULL END,
+     atualizado_em=SYSUTCDATETIME()
+ WHERE pre_matricula_id=@pre_matricula_id;
+ INSERT transacional.tb_historico_status_pre_matricula(pre_matricula_id,status_pre_matricula_id,alterado_por_usuario_id,observacao)
+ VALUES(@pre_matricula_id,@status_id,@usuario_id,@observacao);
+ COMMIT;
+END;
+GO
+
+CREATE OR ALTER VIEW transacional.vw_alunos_feedback
+AS
+SELECT ag.agendamento_id,ag.data_aula_pratica,a.aluno_id,a.numero_matricula,a.foto_url,
+       p.nome_completo,e.nome especialidade,te.hora_inicio,te.hora_termino,s.codigo status
+FROM transacional.tb_agendamento ag
+JOIN transacional.tb_aluno a ON a.aluno_id=ag.aluno_id
+JOIN transacional.tb_pessoa p ON p.pessoa_id=a.pessoa_id
+JOIN transacional.tb_turno_especialidade te ON te.turno_especialidade_id=ag.turno_especialidade_id
+JOIN dominio.tb_especialidade e ON e.especialidade_id=te.especialidade_id
+JOIN dominio.tb_status_agendamento s ON s.status_agendamento_id=ag.status_agendamento_id
+WHERE s.codigo='APROVADO';
 GO

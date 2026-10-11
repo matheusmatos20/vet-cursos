@@ -1,0 +1,26 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cadastro do Aluno | Clinvet Cursos</title><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="cadastro-aluno.css"></head><body>
+<header><div class="brand"><span class="paw">🐾</span><div><h1>Clinvet • Cadastro do Aluno</h1><small>Conversão da pré-matrícula</small></div></div><a href="gestao.html" class="btn secondary">← Gestão</a></header>
+<main class="wrap cadastro-wrap">
+<section class="card"><div class="stephead"><div><span class="step">1</span><h2>Confirmar dados do aluno</h2><p>Revise os dados vindos da pré-matrícula, selecione a turma e inclua uma foto de identificação.</p></div><span id="statusOrigem" class="badge"></span></div></section>
+<section class="layout">
+<div class="card">
+<div class="grid2">
+<label>Nome completo<input id="nome" required></label>
+<label>E-mail<input id="email" type="email"></label>
+<label>Telefone<input id="telefone"></label>
+<label>Data de nascimento<input id="dataNascimento" type="date"></label>
+<label>Turma<select id="turma"><option value="">Selecione...</option></select></label>
+<label>Responsável pela conversão<input id="responsavel"></label>
+</div>
+<div class="actions"><button id="salvar" class="btn success">Finalizar matrícula</button><a class="btn secondary" href="gestao.html">Cancelar</a></div>
+<div id="retorno" class="retorno hidden"></div>
+</div>
+<aside class="card foto-card">
+<h3>Foto de identificação</h3>
+<div class="avatar-wrap"><img id="fotoPreview" alt="Prévia da foto do aluno"><div id="avatarFallback" class="avatar-fallback">Foto</div></div>
+<input id="foto" type="file" accept="image/*">
+<small>A foto será usada para identificação do aluno em telas operacionais, inclusive no momento do feedback.</small>
+</aside>
+</section>
+</main>
+<script src="app.js"></script><script src="cadastro-aluno.js"></script></body></html>

@@ -68,6 +68,7 @@ class Aluno(Base):
     aluno_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     pessoa_id: Mapped[int] = mapped_column(ForeignKey("transacional.tb_pessoa.pessoa_id"))
     numero_matricula: Mapped[str] = mapped_column(String(20))
+    foto_url: Mapped[str | None] = mapped_column(String(1000))
 
 class Matricula(Base):
     __tablename__ = "tb_matricula"

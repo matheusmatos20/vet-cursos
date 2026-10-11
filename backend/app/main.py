@@ -119,6 +119,10 @@ def carregar_chamada(aula_id:int,sessao:Session=Depends(obter_sessao)):
 def salvar_chamada(aula_id:int,dados:ChamadaEntrada,sessao:Session=Depends(obter_sessao)):
     return aula_service.salvar_chamada(sessao,aula_id,[r.model_dump() for r in dados.registros],dados.usuario_id)
 
+@app.get("/api/avaliacoes/candidatos")
+def candidatos_avaliacao(data:str,hora_inicio:str|None=None,hora_termino:str|None=None,sessao:Session=Depends(obter_sessao)):
+    return avaliacao_service.candidatos(sessao,data,hora_inicio,hora_termino)
+
 @app.post("/api/avaliacoes",status_code=201)
 def registrar_avaliacao(dados:AvaliacaoEntrada,sessao:Session=Depends(obter_sessao)):
     try:return avaliacao_service.registrar(sessao,dados.agendamento_id,dados.nome_avaliador,dados.funcao_avaliador,dados.tipo,dados.comentario,dados.notas)
